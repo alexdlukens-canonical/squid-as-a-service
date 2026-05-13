@@ -20,7 +20,7 @@ def _get_jinja2_env() -> Environment:
     )
 
 
-def render_squid_config() -> str:
+def render_squid_config(version: int | None = None) -> str:
     """Render the Squid configuration from the current database state."""
     from .models import ACLRule, ConfigVersion, DestinationConfig, DestinationGroup, PortGroup, SourceACL, SourceGroup
 
@@ -28,10 +28,12 @@ def render_squid_config() -> str:
     template = env.get_template("squid.conf.j2")
 
     config_version = ConfigVersion.get()
+    if version is None:
+        version = config_version.version + 1
 
     return template.render(
         squid_port=settings.SQUID_PORT,
-        version=config_version.version + 1,
+        version=version,
         source_acls=list(SourceACL.objects.order_by("service", "name")),
         source_groups=list(SourceGroup.objects.prefetch_related("sources").order_by("service", "name")),
         destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").order_by("service", "name")),

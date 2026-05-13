@@ -107,6 +107,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if not self._gunicorn_running():
             event.add_status(ops.MaintenanceStatus("Starting API service"))
             return
+        self._sync_config_version_if_stale()
         api_status = "up"
         squid_status = "up" if squid.squid_service_running() else "down"
         config_version = self._read_applied_config_version()
@@ -367,6 +368,24 @@ class SquidAsAServiceCharm(ops.CharmBase):
             ops.Port("tcp", squid_port),
             ops.Port("tcp", api_port),
         )
+
+    def _sync_config_version_if_stale(self) -> None:
+        """Re-render the Squid config and bump ConfigVersion if DB state diverges from the stored render."""
+        out, err = self._run_manage_capture(
+            "shell",
+            "-c",
+            (
+                "from terrasquid.api.models import ConfigVersion;"
+                "from terrasquid.api.squid_render import render_squid_config;"
+                "cv = ConfigVersion.get();"
+                "rendered = render_squid_config(version=cv.version);"
+                "changed = cv.rendered_config != rendered;"
+                "changed and ConfigVersion.increment(render_squid_config());"
+                "print('stale' if changed else 'ok')"
+            ),
+        )
+        if out.strip() == "stale":
+            logger.info("Config version bumped: DB state diverged from stored render (e.g. admin edit)")
 
     def _read_applied_config_version(self) -> int:
         if not TERRASQUID_STATUS_FILE.exists():
