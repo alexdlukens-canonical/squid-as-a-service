@@ -23,14 +23,14 @@ Description=Terrasquid API (Gunicorn)
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=www-data
 Group=www-data
 Environment=DJANGO_SETTINGS_MODULE=terrasquid.settings
 Environment=DATABASE_URL={database_url}
 Environment=DJANGO_SECRET_KEY={secret_key}
 WorkingDirectory=/var/lib/terrasquid
-ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
+ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers} --pid /var/lib/terrasquid/gunicorn.pid
 Restart=on-failure
 
 [Install]
@@ -94,7 +94,8 @@ class TerrasquidCharm(ops.CharmBase):
             self.unit.status = ops.BlockedStatus("Waiting for database relation")
 
     def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
-        """Ensure existing database relations request a database after upgrade."""
+        """Update workdir workload code and refresh database relations after upgrade."""
+        self._update_workdir_code()
         if not self.unit.is_leader():
             return
         for relation in self.model.relations.get("database", []):
@@ -131,6 +132,20 @@ class TerrasquidCharm(ops.CharmBase):
         )
 
         # Copy workload source code into the working directory
+        self._copy_workload_code(workdir)
+
+        # Ensure the watcher can find squid.py on PYTHONPATH by creating a .pth file
+        site_packages = list((venv_path / "lib").glob("python3.*/site-packages"))
+        if site_packages:
+            (site_packages[0] / "terrasquid.pth").write_text(str(workdir) + "\n")
+
+        subprocess.run(
+            ["chown", "-R", "www-data:www-data", str(workdir)],
+            check=False,
+        )
+
+    def _copy_workload_code(self, workdir: Path) -> None:
+        """Copy workload source code from charm source to workdir."""
         charm_src = Path(__file__).resolve().parent
         terrasquid_src = charm_src / "terrasquid"
         watcher_src = charm_src / "watcher.py"
@@ -146,15 +161,15 @@ class TerrasquidCharm(ops.CharmBase):
         if squid_src.exists():
             subprocess.run(["cp", str(squid_src), str(workdir / "squid.py")], check=False)
 
-        # Ensure the watcher can find squid.py on PYTHONPATH by creating a .pth file
-        site_packages = list((venv_path / "lib").glob("python3.*/site-packages"))
-        if site_packages:
-            (site_packages[0] / "terrasquid.pth").write_text(str(workdir) + "\n")
-
-        subprocess.run(
-            ["chown", "-R", "www-data:www-data", str(workdir)],
-            check=False,
-        )
+    def _update_workdir_code(self) -> None:
+        """Update workload code in workdir during charm upgrade."""
+        workdir = Path("/var/lib/terrasquid")
+        if not workdir.exists():
+            return
+        self._copy_workload_code(workdir)
+        subprocess.run(["systemctl", "daemon-reload"], check=False)
+        subprocess.run(["systemctl", "try-restart", "gunicorn-terrasquid"], check=False)
+        subprocess.run(["systemctl", "try-restart", "terrasquid-watcher"], check=False)
 
     def _write_systemd_units(self) -> None:
         """Write placeholder systemd unit files during install."""
@@ -191,7 +206,20 @@ class TerrasquidCharm(ops.CharmBase):
     def _on_config_changed(self, event: ops.ConfigChangedEvent) -> None:
         """Handle charm config changes."""
         self._write_base_squid_config()
-        subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
+        if self._database_is_configured():
+            db_url = os.environ.get("DATABASE_URL", "")
+            if db_url:
+                self._write_systemd_units_for_db(db_url)
+            subprocess.run(["systemctl", "daemon-reload"], check=False)
+            subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
+
+    def _database_is_configured(self) -> bool:
+        """Check if the database relation has provided credentials."""
+        unit_file = Path("/etc/systemd/system/gunicorn-terrasquid.service")
+        if unit_file.exists():
+            content = unit_file.read_text()
+            return "DATABASE_URL=postgresql://" in content
+        return False
 
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
         """Handle database credentials becoming available."""
@@ -212,13 +240,14 @@ class TerrasquidCharm(ops.CharmBase):
 
         if self.unit.is_leader():
             subprocess.run(
-                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/terrasquid/manage.py", "migrate"],
+                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/manage.py", "migrate"],
                 check=False,
             )
 
         subprocess.run(["systemctl", "daemon-reload"], check=False)
-        subprocess.run(["systemctl", "enable", "--now", "gunicorn-terrasquid"], check=False)
-        subprocess.run(["systemctl", "enable", "--now", "terrasquid-watcher"], check=False)
+        subprocess.run(["systemctl", "enable", "gunicorn-terrasquid", "terrasquid-watcher"], check=False)
+        subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
+        subprocess.run(["systemctl", "restart", "terrasquid-watcher"], check=False)
         self.unit.status = ops.ActiveStatus()
 
     def _write_systemd_units_for_db(self, db_url: str) -> None:

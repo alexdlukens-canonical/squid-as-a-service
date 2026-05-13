@@ -13,7 +13,7 @@ DB_URL = os.environ.get("DATABASE_URL", "")
 UNIT_NAME = os.environ.get("JUJU_UNIT_NAME", "terrasquid/0")
 IS_LEADER = os.environ.get("JUJU_LEADER", "false").lower() == "true"
 LOCAL_STATE_PATH = Path("/var/lib/terrasquid/state.json")
-TEMPLATE_PATH = Path("/var/lib/terrasquid/squid.conf.j2")
+TEMPLATE_PATH = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
 SQUID_CONF_PATH = Path("/etc/squid/conf.d/terrasquid.conf")
 STAGING_CONF_PATH = Path("/etc/squid/conf.d/terrasquid.conf.staging")
 POLL_INTERVAL = 5
@@ -38,12 +38,7 @@ def save_local_state(state: dict) -> None:
 
 
 def render_and_validate(db_conn) -> tuple[str, bool]:
-    """Render Squid config from DB and validate it."""
-    template = TEMPLATE_PATH.read_text() if TEMPLATE_PATH.exists() else ""
-    if not template:
-        return "", False
-
-    # Fetch all config data from DB
+    """Get Squid config from DB (pre-rendered) or render from template."""
     with db_conn.cursor() as cur:
         cur.execute("SELECT version, rendered_config FROM terrasquid_api_configversion WHERE id = 1")
         row = cur.fetchone()
@@ -51,76 +46,111 @@ def render_and_validate(db_conn) -> tuple[str, bool]:
             return "", False
         version, rendered = row
 
-    if rendered and not IS_LEADER:
-        # Follower: use leader-rendered config
+    if rendered:
+        STAGING_CONF_PATH.write_text(rendered)
+        if not validate_config(str(STAGING_CONF_PATH)):
+            STAGING_CONF_PATH.unlink(missing_ok=True)
+            return rendered, False
+        STAGING_CONF_PATH.rename(SQUID_CONF_PATH)
         return rendered, True
 
-    # Leader: render from scratch
-    context = build_context(db_conn)
-    config = render_config(template, context)
+    if IS_LEADER and TEMPLATE_PATH.exists():
+        template = TEMPLATE_PATH.read_text()
+        context = build_context(db_conn)
+        config = render_config(template, context)
+        STAGING_CONF_PATH.write_text(config)
+        if not validate_config(str(STAGING_CONF_PATH)):
+            STAGING_CONF_PATH.unlink(missing_ok=True)
+            return config, False
+        STAGING_CONF_PATH.rename(SQUID_CONF_PATH)
+        return config, True
 
-    STAGING_CONF_PATH.write_text(config)
-    if not validate_config(str(STAGING_CONF_PATH)):
-        STAGING_CONF_PATH.unlink(missing_ok=True)
-        return config, False
-
-    STAGING_CONF_PATH.rename(SQUID_CONF_PATH)
-    return config, True
+    return "", False
 
 
 def build_context(db_conn) -> dict:
     """Build template context from database state."""
+    from types import SimpleNamespace
+
     with db_conn.cursor() as cur:
         cur.execute("SELECT id, service, name, cidr FROM terrasquid_api_sourceacl")
-        sources = [
-            {"id": r[0], "service": r[1], "name": r[2], "cidr": r[3]}
-            for r in cur.fetchall()
-        ]
+        source_rows = {r[0]: SimpleNamespace(id=r[0], service=r[1], name=r[2], cidr=r[3]) for r in cur.fetchall()}
 
         cur.execute("SELECT id, service, name FROM terrasquid_api_sourcegroup")
-        source_groups = [
-            {"id": r[0], "service": r[1], "name": r[2]}
-            for r in cur.fetchall()
-        ]
+        source_group_rows = {r[0]: SimpleNamespace(id=r[0], service=r[1], name=r[2]) for r in cur.fetchall()}
 
         cur.execute("SELECT id, service, name, dst, type, ports FROM terrasquid_api_destinationconfig")
-        destinations = [
-            {"id": r[0], "service": r[1], "name": r[2], "dst": r[3], "type": r[4], "ports": r[5]}
+        dest_rows = {
+            r[0]: SimpleNamespace(id=r[0], service=r[1], name=r[2], dst=r[3], type=r[4], ports=r[5])
             for r in cur.fetchall()
-        ]
+        }
 
         cur.execute("SELECT id, service, name FROM terrasquid_api_destinationgroup")
-        destination_groups = [
-            {"id": r[0], "service": r[1], "name": r[2]}
-            for r in cur.fetchall()
-        ]
+        dest_group_rows = {r[0]: SimpleNamespace(id=r[0], service=r[1], name=r[2]) for r in cur.fetchall()}
 
         cur.execute("SELECT id, service, name, ports FROM terrasquid_api_portgroup")
         port_groups = [
-            {"id": r[0], "service": r[1], "name": r[2], "ports": r[3]}
+            SimpleNamespace(id=r[0], service=r[1], name=r[2], ports=r[3])
             for r in cur.fetchall()
         ]
+
+        cur.execute(
+            "SELECT sourcegroup_id, sourceacl_id FROM terrasquid_api_sourcegroup_sources"
+        )
+        for sg_id, src_id in cur.fetchall():
+            sg = source_group_rows.get(sg_id)
+            src = source_rows.get(src_id)
+            if sg and src:
+                if not hasattr(sg, "_sources"):
+                    sg._sources = []
+                sg._sources.append(src)
+
+        cur.execute(
+            "SELECT destinationgroup_id, destinationconfig_id FROM terrasquid_api_destinationgroup_destinations"
+        )
+        for dg_id, dst_id in cur.fetchall():
+            dg = dest_group_rows.get(dg_id)
+            dst = dest_rows.get(dst_id)
+            if dg and dst:
+                if not hasattr(dg, "_destinations"):
+                    dg._destinations = []
+                dg._destinations.append(dst)
 
         cur.execute(
             "SELECT service, priority, src_id, src_group_id, dst_id, dst_group_id "
             "FROM terrasquid_api_aclrule ORDER BY priority, created_at"
         )
-        acl_rules = [
-            {
-                "service": r[0],
-                "priority": r[1],
-                "src": r[2],
-                "src_group": r[3],
-                "dst": r[4],
-                "dst_group": r[5],
-            }
-            for r in cur.fetchall()
-        ]
+        acl_rules = []
+        for r in cur.fetchall():
+            src = source_rows.get(r[2])
+            src_group = source_group_rows.get(r[3])
+            dst = dest_rows.get(r[4])
+            dst_group = dest_group_rows.get(r[5])
+            acl_rules.append(
+                SimpleNamespace(
+                    service=r[0],
+                    priority=r[1],
+                    src=src,
+                    src_group=src_group,
+                    dst=dst,
+                    dst_group=dst_group,
+                )
+            )
+
+    source_groups = []
+    for sg in source_group_rows.values():
+        sg.sources = SimpleNamespace(all=lambda sg=sg: getattr(sg, "_sources", []))
+        source_groups.append(sg)
+
+    destination_groups = []
+    for dg in dest_group_rows.values():
+        dg.destinations = SimpleNamespace(all=lambda dg=dg: getattr(dg, "_destinations", []))
+        destination_groups.append(dg)
 
     return {
-        "sources": sources,
+        "sources": list(source_rows.values()),
         "source_groups": source_groups,
-        "destinations": destinations,
+        "destinations": list(dest_rows.values()),
         "destination_groups": destination_groups,
         "port_groups": port_groups,
         "acl_rules": acl_rules,

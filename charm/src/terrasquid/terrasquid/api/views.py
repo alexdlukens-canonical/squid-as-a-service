@@ -39,59 +39,44 @@ class StatusView(APIView):
         except ConfigVersion.DoesNotExist:
             db_version = 0
 
+        state = self._read_watcher_state()
         return Response(
             {
                 "db_config_version": db_version,
-                "applied_config_version": 0,
-                "last_reload": None,
-                "last_reload_ok": True,
-                "unit": "squid-as-a-service/0",
+                "applied_config_version": state.get("applied_config_version", 0),
+                "last_reload": state.get("last_reload"),
+                "last_reload_ok": state.get("last_reload_ok", True),
+                "unit": state.get("unit", "unknown"),
             },
             status=status.HTTP_200_OK,
         )
 
+    def _read_watcher_state(self):
+        import json
+        from pathlib import Path
+        state_path = Path("/var/lib/terrasquid/state.json")
+        if state_path.exists():
+            try:
+                return json.loads(state_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+        return {}
+
 
 class AdvisoryLockMixin:
-    """Mixin that acquires PostgreSQL advisory lock before writes."""
+    """Mixin that provides PostgreSQL advisory lock helpers for write serialization."""
 
-    LOCK_ID_SQL = "SELECT pg_advisory_lock(hashtext('terrasquid_config_write'))"
-    UNLOCK_ID_SQL = "SELECT pg_advisory_unlock(hashtext('terrasquid_config_write'))"
+    LOCK_KEY = "terrasquid_config_write"
 
     def _acquire_lock(self):
         if connection.vendor == "postgresql":
             with connection.cursor() as cursor:
-                cursor.execute(self.LOCK_ID_SQL)
+                cursor.execute("SELECT pg_advisory_lock(hashtext(%s))", [self.LOCK_KEY])
 
     def _release_lock(self):
         if connection.vendor == "postgresql":
             with connection.cursor() as cursor:
-                cursor.execute(self.UNLOCK_ID_SQL)
-
-    def perform_create(self, serializer):
-        self._acquire_lock()
-        try:
-            instance = serializer.save()
-            self._bump_config_version()
-            return instance
-        finally:
-            self._release_lock()
-
-    def perform_update(self, serializer):
-        self._acquire_lock()
-        try:
-            instance = serializer.save()
-            self._bump_config_version()
-            return instance
-        finally:
-            self._release_lock()
-
-    def perform_destroy(self, instance):
-        self._acquire_lock()
-        try:
-            instance.delete()
-            self._bump_config_version()
-        finally:
-            self._release_lock()
+                cursor.execute("SELECT pg_advisory_unlock(hashtext(%s))", [self.LOCK_KEY])
 
     def _bump_config_version(self):
         from django.utils import timezone
@@ -142,7 +127,7 @@ class BaseResourceViewSet(AdvisoryLockMixin, ReferencedResourceMixin, ServiceFil
 
         from squid import render_config, validate_config
 
-        template_path = Path("/var/lib/terrasquid/templates/squid.conf.j2")
+        template_path = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
         if not template_path.exists():
             return True, ""
 
@@ -150,19 +135,20 @@ class BaseResourceViewSet(AdvisoryLockMixin, ReferencedResourceMixin, ServiceFil
         context = self._build_render_context()
         rendered = render_config(template, context)
 
-        # Write to staging file
         staging = Path("/tmp/terrasquid-staging.conf")
-        staging.write_text(rendered)
-
-        # Build wrapper config
         wrapper = Path("/tmp/terrasquid-wrapper.conf")
-        wrapper.write_text(
-            f"http_port 3128\ninclude {staging}\n"
-        )
+        try:
+            staging.write_text(rendered)
+            wrapper.write_text(
+                f"http_port 3128\ninclude {staging}\n"
+            )
 
-        if not validate_config(str(wrapper)):
-            return False, "Squid configuration validation failed."
-        return True, ""
+            if not validate_config(str(wrapper)):
+                return False, "Squid configuration validation failed."
+            return True, ""
+        finally:
+            staging.unlink(missing_ok=True)
+            wrapper.unlink(missing_ok=True)
 
     def _build_render_context(self):
         """Build context for Squid config rendering."""
@@ -187,20 +173,45 @@ class BaseResourceViewSet(AdvisoryLockMixin, ReferencedResourceMixin, ServiceFil
         }
 
     def perform_create(self, serializer):
-        """Set service and key_prefix from authenticated API key."""
-        request = self.request
-        service = "default"
-        prefix = "unknown"
-        if hasattr(request, "auth") and request.auth:
-            api_key = request.auth
-            service = getattr(api_key, "service", "default")
-            prefix = getattr(api_key, "prefix", "unknown")
-        serializer.save(service=service, key_prefix=prefix)
-        if getattr(serializer, "_existing_instance", False):
-            # Don't bump version for de-duplication
-            pass
-        else:
+        self._acquire_lock()
+        try:
+            super().perform_create(serializer)
+            if not getattr(serializer, "_existing_instance", False):
+                self._bump_config_version()
+                self._save_rendered_config()
+        finally:
+            self._release_lock()
+
+    def perform_update(self, serializer):
+        self._acquire_lock()
+        try:
+            super().perform_update(serializer)
             self._bump_config_version()
+            self._save_rendered_config()
+        finally:
+            self._release_lock()
+
+    def perform_destroy(self, instance):
+        self._acquire_lock()
+        try:
+            super().perform_destroy(instance)
+            self._bump_config_version()
+            self._save_rendered_config()
+        finally:
+            self._release_lock()
+
+    def _save_rendered_config(self):
+        from pathlib import Path
+        from squid import render_config
+
+        template_path = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
+        if not template_path.exists():
+            return
+
+        template = template_path.read_text()
+        context = self._build_render_context()
+        rendered = render_config(template, context)
+        ConfigVersion.objects.filter(id=1).update(rendered_config=rendered)
 
     def create(self, request, *args, **kwargs):
         # Pre-commit validation (skip for delete)

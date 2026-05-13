@@ -9,9 +9,9 @@ class ServiceFilterMixin:
         """Filter queryset by service label from API key."""
         queryset = super().get_queryset()
         request = self.request
-        if hasattr(request, "user") and hasattr(request, "auth"):
+        if hasattr(request, "auth") and request.auth:
             api_key = request.auth
-            if api_key and hasattr(api_key, "service"):
+            if hasattr(api_key, "service"):
                 return queryset.filter(service=api_key.service)
         return queryset
 
