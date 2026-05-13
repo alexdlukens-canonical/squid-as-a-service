@@ -1,0 +1,17 @@
+service_name: ps7-myservice-production
+service_type: compute.juju_model
+access_rules:
+  - name: instance-net
+    dst: archive.ubuntu.com
+    type: ALLOW
+    ports: [80, 443]
+    priority: 100
+  - name: tunnel-external
+    dst: .api.github.com
+    type: CONNECT
+    ports: [443]
+    priority: 100
+access_rulesets:
+  - canonical-package-repos
+  - default-proxy-rules
+use_proxy_provider: true
