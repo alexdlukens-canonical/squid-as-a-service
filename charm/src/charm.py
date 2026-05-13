@@ -1,9 +1,12 @@
 """Terrasquid machine charm - Squid-as-a-Service."""
 import os
 import subprocess
+import urllib.parse
 from pathlib import Path
 
 import ops
+
+from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
 
 SQUID_BASE_CONFIG = """# Base Squid configuration managed by Terrasquid
 http_port {squid_port}
@@ -59,8 +62,16 @@ class TerrasquidCharm(ops.CharmBase):
     def __init__(self, *args):
         super().__init__(*args)
         self.framework.observe(self.on.install, self._on_install)
+        self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.framework.observe(self.on.database_relation_changed, self._on_database_relation_changed)
+        self.database = DatabaseRequires(
+            self,
+            relation_name="database",
+            database_name="terrasquid",
+        )
+        self.framework.observe(self.database.on.database_created, self._on_database_created)
+        self.framework.observe(self.database.on.endpoints_changed, self._on_database_created)
         for action_name in ["create-key", "revoke-key", "rotate-key", "list-keys", "reconfigure"]:
             self.framework.observe(
                 getattr(self.on, f"{action_name.replace('-', '_')}_action"),
@@ -75,6 +86,21 @@ class TerrasquidCharm(ops.CharmBase):
         self._write_base_squid_config()
         self._write_systemd_units()
         self.unit.status = ops.BlockedStatus("Waiting for database relation")
+
+    def _on_start(self, event: ops.StartEvent) -> None:
+        """Set status on start based on whether the database relation exists."""
+        if not self.model.relations.get("database"):
+            self.unit.status = ops.BlockedStatus("Waiting for database relation")
+
+    def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
+        """Ensure existing database relations request a database after upgrade."""
+        if not self.unit.is_leader():
+            return
+        for relation in self.model.relations.get("database", []):
+            if not relation.data[self.app].get("database"):
+                self.database.update_relation_data(
+                    relation.id, {"database": self.database.database}
+                )
 
     def _write_base_squid_config(self) -> None:
         """Write base Squid configuration."""
@@ -95,23 +121,28 @@ class TerrasquidCharm(ops.CharmBase):
         self._write_base_squid_config()
         subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
 
-    def _on_database_relation_changed(self, event: ops.RelationEvent) -> None:
-        """Handle database relation."""
-        if not event.relation:
-            self.unit.status = ops.BlockedStatus("Waiting for database relation")
-            return
-
-        data = event.relation.data[event.app]
-        db_url = data.get("connection_string", "")
-        if not db_url:
+    def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
+        """Handle database credentials becoming available."""
+        if not event.username or not event.password or not event.endpoints:
             self.unit.status = ops.WaitingStatus("Waiting for database credentials")
             return
+
+        endpoint = event.endpoints.split(",")[0]
+        db_url = "postgresql://{}:{}@{}/{}".format(
+            event.username,
+            urllib.parse.quote(event.password),
+            endpoint,
+            self.database.database,
+        )
 
         os.environ["DATABASE_URL"] = db_url
         self._write_systemd_units_for_db(db_url)
 
         if self.unit.is_leader():
-            subprocess.run(["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/manage.py", "migrate"], check=False)
+            subprocess.run(
+                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/manage.py", "migrate"],
+                check=False,
+            )
 
         subprocess.run(["systemctl", "daemon-reload"], check=False)
         subprocess.run(["systemctl", "enable", "--now", "gunicorn-terrasquid"], check=False)
