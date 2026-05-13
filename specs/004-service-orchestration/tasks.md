@@ -45,7 +45,7 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 ### Tests for Foundational (Write First - Must Fail)
 
 - [X] T004 [P] Write unit tests for `ServiceDefinition` base model in `service/tests/unit/test_models_base.py`
-- [ ] T005 [P] Write unit tests for `AccessRule` model in `service/tests/unit/test_models_base.py`
+- [X] T005 [P] Write unit tests for `AccessRule` model in `service/tests/unit/test_models_base.py`
 - [ ] T006 [P] Write unit tests for `DestinationConfig` model in `service/tests/unit/test_models_base.py`
 
 ### Implementation for Foundational
