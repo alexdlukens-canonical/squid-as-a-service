@@ -30,7 +30,7 @@ Environment=DJANGO_SETTINGS_MODULE=terrasquid.settings
 Environment=DATABASE_URL={database_url}
 Environment=DJANGO_SECRET_KEY={secret_key}
 WorkingDirectory=/var/lib/terrasquid
-ExecStart=/usr/local/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
+ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
 Restart=on-failure
 
 [Install]
