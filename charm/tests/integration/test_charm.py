@@ -8,6 +8,8 @@ These tests deploy a real Juju model with PostgreSQL and verify that:
 """
 
 
+import time
+
 import jubilant
 import requests
 
@@ -177,6 +179,75 @@ def test_list_keys_action(juju, deployed_charms):
     task = juju.run(f"{deployed_charms['saas_app']}/0", "list-keys")
     assert task.success
     assert "keys" in task.results
+
+
+def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
+    """Adding an ACL rule must cause the watcher to apply it and Squid to allow matching traffic.
+
+    Flow:
+    1. Wait for the watcher timer to apply the initial deny-all Squid config.
+    2. Confirm Squid blocks a request to google.com through the proxy.
+    3. Create source ACL, destination config, and ACL rule via the API.
+    4. Wait for the watcher timer to pick up the new rules (runs every 5s, wait 10s).
+    5. Confirm Squid now allows the same request.
+    """
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    squid_proxy = f"http://{address}:3128"
+    proxies = {"http": squid_proxy}
+
+    time.sleep(10)
+
+    r_before = requests.get(
+        "http://www.google.com",
+        proxies=proxies,
+        timeout=10,
+        allow_redirects=False,
+    )
+    assert r_before.status_code == 403, (
+        f"Expected Squid to deny before rules, got {r_before.status_code}"
+    )
+
+    key = _create_api_key(juju, deployed_charms["saas_app"], "proxy-acl-test")
+    headers = {"Authorization": f"Api-Key {key}"}
+    base = _api_url(address)
+
+    src_resp = requests.post(
+        f"{base}/sources/",
+        json={"name": "all-clients", "cidr": ["0.0.0.0/0"]},
+        headers=headers,
+        timeout=10,
+    )
+    assert src_resp.status_code == 201
+    src_id = src_resp.json()["id"]
+
+    dst_resp = requests.post(
+        f"{base}/destinations/",
+        json={"name": "google", "dst": ".google.com", "type": "ALLOW", "ports": [80]},
+        headers=headers,
+        timeout=10,
+    )
+    assert dst_resp.status_code == 201
+    dst_id = dst_resp.json()["id"]
+
+    rule_resp = requests.post(
+        f"{base}/acl-rules/",
+        json={"name": "allow-google", "src": src_id, "dst": dst_id, "priority": 10},
+        headers=headers,
+        timeout=10,
+    )
+    assert rule_resp.status_code == 201
+
+    time.sleep(60)
+
+    r_after = requests.get(
+        "http://www.google.com",
+        proxies=proxies,
+        timeout=10,
+        allow_redirects=False,
+    )
+    assert r_after.status_code != 403, (
+        f"Expected Squid to allow after rules, got {r_after.status_code}"
+    )
 
 
 def test_source_acl_service_isolation(juju, deployed_charms):
