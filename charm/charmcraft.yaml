@@ -66,18 +66,14 @@ requires:
 
 parts:
   charm:
-    plugin: python
+    plugin: uv
     source: .
-    python-packages:
-      - ops
+    build-snaps:
+      - astral-uv
     build-packages:
-      - python3-pip
-      - python3-venv
       - build-essential
       - libpq-dev
       - apt-transport-https
-    stage-packages:
-      - python3.12-venv
 
 peers:
   squid-aaas-peers:
