@@ -1,0 +1,44 @@
+{% macro render_acl_name(resource) %}{{ resource.service }}_{{ resource.name }}{% endmacro %}
+
+# Terrasquid generated Squid configuration
+# Version: {{ config_version }}
+
+# Port groups
+{% for pg in port_groups %}
+acl {{ render_acl_name(pg) }} port {{ pg.ports | join(' ') }}
+{% endfor %}
+
+# Source ACLs
+{% for src in sources %}
+acl {{ render_acl_name(src) }} src {{ src.cidr | join(' ') }}
+{% endfor %}
+
+# Source groups
+{% for sg in source_groups %}
+acl {{ render_acl_name(sg) }} src {% for s in sg.sources.all() %}{{ render_acl_name(s) }} {% endfor %}
+{% endfor %}
+
+# Destination ACLs
+{% for dst in destinations %}
+{% if dst.type == 'ALLOW' or dst.type == 'DENY' %}
+acl {{ render_acl_name(dst) }} dstdomain {{ dst.dst }}
+{% elif dst.type == 'CONNECT' %}
+acl {{ render_acl_name(dst) }} dstdomain {{ dst.dst }}
+{% endif %}
+{% endfor %}
+
+# Destination groups
+{% for dg in destination_groups %}
+acl {{ render_acl_name(dg) }} dstdomain {% for d in dg.destinations.all() %}{{ render_acl_name(d) }} {% endfor %}
+{% endfor %}
+
+# ACL Rules
+{% for rule in acl_rules %}
+http_access {% if rule.dst.type == 'DENY' %}deny{% else %}allow{% endif %} {{ render_acl_name(rule.src or rule.src_group) }} {{ render_acl_name(rule.dst or rule.dst_group) }}
+{% endfor %}
+
+# Default deny
+http_access deny all
+
+# Extra config
+{{ squid_extra_config }}

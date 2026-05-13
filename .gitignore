@@ -1,5 +1,6 @@
-.workshop.lock
+.kilo/agent-manager.json
 .kilo/plans
+.kilocode/rules/specify-rules.md
 .specify/feature.json
 .kilocode/rules/specify-rules.md
 
@@ -29,6 +30,26 @@ venv/
 env/
 
 # IDEs / OS
+.workshop.lock
+
+
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Node.js
+node_modules/
+dist/
+build/
+*.log
+.env*
+
+# Universal
 .DS_Store
 Thumbs.db
 *.tmp
@@ -39,3 +60,6 @@ Thumbs.db
 # Logs / Env
 *.log
 .env*
+*.charm
+.ruff_cache/
+.pytest_cache/
