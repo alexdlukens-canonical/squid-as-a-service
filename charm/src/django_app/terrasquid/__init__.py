@@ -1,0 +1,1 @@
+"""Terrasquid Django project package."""

@@ -30,6 +30,9 @@ dev = [
     "pyright",
     "codespell",
     "ops[testing]",
+    "jubilant",
+    "pytest-jubilant",
+    "requests",
 ]
 
 [tool.setuptools.packages.find]
@@ -41,7 +44,7 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "D", "UP", "B", "C4", "SIM", "ARG"]
-ignore = ["D100", "D104", "D107", "D203", "D213", "D102"]
+ignore = ["D100", "D104", "D107", "D203", "D213", "D102", "ARG002"]
 # Ignore docstring errors in migration files and Meta class warnings in models and serializers
 per-file-ignores = {"src/django_app/terrasquid/api/migrations/*.py" = ["D"], "src/django_app/terrasquid/api/models.py" = ["D106"], "src/django_app/terrasquid/api/serializers.py" = ["D106"]}
 
@@ -56,3 +59,11 @@ pythonpath = ["src/django_app", "src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+addopts = "--tb=short"
+
+[dependency-groups]
+dev = [
+    "ops[testing]>=3.7.0",
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+]

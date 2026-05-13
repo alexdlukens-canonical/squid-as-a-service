@@ -75,6 +75,10 @@ requires:
     interface: cos_agent
     optional: true
 
+charm-libs:
+  - lib: data_platform_libs.data_interfaces
+    version: "0"
+
 parts:
   charm:
     plugin: uv
