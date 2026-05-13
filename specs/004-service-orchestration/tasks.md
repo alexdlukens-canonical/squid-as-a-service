@@ -130,16 +130,16 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 3 (Write First - Must Fail)
 
-- [ ] T042 [P] [US3] Write unit tests for `NetworkProxy` Terraform rendering in `service/tests/unit/test_renderer.py`
-- [ ] T043 [P] [US3] Write unit tests for proxy charm deployment resources in `service/tests/unit/test_renderer.py`
-- [ ] T044 [P] [US3] Write integration tests for network proxy end-to-end YAML-to-Terraform flow in `service/tests/integration/test_proxy.py`
+- [X] T042 [P] [US3] Write unit tests for `NetworkProxy` Terraform rendering in `service/tests/unit/test_renderer.py`
+- [X] T043 [P] [US3] Write unit tests for proxy charm deployment resources in `service/tests/unit/test_renderer.py`
+- [X] T044 [P] [US3] Write integration tests for network proxy end-to-end YAML-to-Terraform flow in `service/tests/integration/test_proxy.py`
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Extend renderer with `NetworkProxy` support in `service/src/terrasquid_render/renderer.py`
-- [ ] T046 [P] [US3] Create Jinja2 template for `proxy/main.tf.j2` in `service/templates/proxy/main.tf.j2`
-- [ ] T047 [P] [US3] Create Jinja2 template for `proxy/variables.tf.j2` in `service/templates/proxy/variables.tf.j2`
-- [ ] T048 [P] [US3] Create Jinja2 template for `proxy/outputs.tf.j2` in `service/templates/proxy/outputs.tf.j2`
+- [X] T045 [US3] Extend renderer with `NetworkProxy` support in `service/src/terrasquid_render/renderer.py`
+- [X] T046 [P] [US3] Create Jinja2 template for `proxy/main.tf.j2` in `service/templates/proxy/main.tf.j2`
+- [X] T047 [P] [US3] Create Jinja2 template for `proxy/variables.tf.j2` in `service/templates/proxy/variables.tf.j2`
+- [X] T048 [P] [US3] Create Jinja2 template for `proxy/outputs.tf.j2` in `service/templates/proxy/outputs.tf.j2`
 
 **Checkpoint**: `User Story 3` is fully functional - network proxy definitions render complete infrastructure including Squid charm deployment.
 

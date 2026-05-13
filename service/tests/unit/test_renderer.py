@@ -1,6 +1,7 @@
 import pytest
 from terrasquid_render.models.juju_model import ComputeJujuModel
-from terrasquid_render.renderer import render_compute_juju_model
+from terrasquid_render.models.proxy import NetworkProxy
+from terrasquid_render.renderer import render_compute_juju_model, render_network_proxy
 
 
 def test_render_compute_juju_model_includes_lxd_project():
@@ -163,3 +164,107 @@ def test_inline_access_rule_src_computed_from_network_output():
     )
     result = render_compute_juju_model(model, [])
     assert "lxd_network.test-service-br.config[0].ipv4.address" in result
+
+
+# T042: NetworkProxy Terraform rendering tests
+def test_render_network_proxy_includes_lxd_project():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+    )
+    result = render_network_proxy(model, [])
+    assert 'resource "lxd_project" "test-proxy"' in result
+
+
+def test_render_network_proxy_includes_lxd_network():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+    )
+    result = render_network_proxy(model, [])
+    assert 'resource "lxd_network" "test-proxy-br"' in result
+
+
+def test_render_network_proxy_includes_juju_model():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+    )
+    result = render_network_proxy(model, [])
+    assert 'resource "juju_model" "test-proxy"' in result
+
+
+def test_render_network_proxy_includes_inline_access_rules():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[
+            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
+        ],
+        access_rulesets=[],
+        use_proxy_provider=True,
+    )
+    result = render_network_proxy(model, [])
+    assert 'resource "terrasquid_acl_rule" "test-proxy-allow-http"' in result
+
+
+# T043: Proxy charm deployment tests
+def test_render_network_proxy_includes_squid_charm_deployment():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+    )
+    result = render_network_proxy(model, [])
+    assert 'resource "juju_application" "test-proxy-squid"' in result
+    assert 'charm = "squid"' in result
+
+
+def test_render_network_proxy_uses_custom_charm_name():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+        squid={"charm_name": "my-squid", "channel": "stable"},
+    )
+    result = render_network_proxy(model, [])
+    assert 'charm = "my-squid"' in result
+
+
+def test_render_network_proxy_uses_custom_channel():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+        squid={"charm_name": "squid", "channel": "latest/edge"},
+    )
+    result = render_network_proxy(model, [])
+    assert 'channel = "latest/edge"' in result
+
+
+def test_render_network_proxy_includes_squid_config():
+    model = NetworkProxy(
+        service_name="test-proxy",
+        service_type="network.proxy",
+        access_rules=[],
+        access_rulesets=[],
+        use_proxy_provider=True,
+        squid={"charm_name": "squid", "channel": "stable", "config": {"squid-port": "3128"}},
+    )
+    result = render_network_proxy(model, [])
+    assert '"squid-port" = "3128"' in result
