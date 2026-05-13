@@ -1,3 +1,4 @@
 .workshop.lock
 .kilo/plans
 .specify/feature.json
+.kilocode/rules/specify-rules.md
