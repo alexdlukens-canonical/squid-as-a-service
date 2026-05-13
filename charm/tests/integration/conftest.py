@@ -1,28 +1,36 @@
 """Pytest fixtures for Terrasquid integration tests."""
 
 import os
+import secrets
 from pathlib import Path
 
 import jubilant
 import pytest
 
 CHARM_DIR = Path(__file__).parent.parent.parent
+JUJU_BIN = "/snap/juju/current/bin/juju"
 
 
 @pytest.fixture(scope="module")
 def juju():
     """Provide a module-scoped Juju instance.
 
+    Uses the snap-unconfined juju binary to avoid PATH/confinement issues.
     Reuses the model when JUJU_MODEL env var is set, otherwise creates a
     temporary model and tears it down after the test module completes.
     """
     model = os.environ.get("JUJU_MODEL")
     if model:
-        with jubilant.Juju(model=model) as juju_instance:
-            yield juju_instance
+        juju_instance = jubilant.Juju(model=model, cli_binary=JUJU_BIN)
+        yield juju_instance
     else:
-        with jubilant.temp_model() as juju_instance:
+        model_name = "jubilant-" + secrets.token_hex(4)
+        juju_instance = jubilant.Juju(cli_binary=JUJU_BIN)
+        juju_instance.add_model(model_name)
+        try:
             yield juju_instance
+        finally:
+            juju_instance.destroy_model(model_name, destroy_storage=True)
 
 
 @pytest.fixture(scope="module")

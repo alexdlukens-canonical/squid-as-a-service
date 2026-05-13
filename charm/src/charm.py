@@ -21,7 +21,7 @@ import squid
 logger = logging.getLogger(__name__)
 
 CHARM_DIR = Path(__file__).parent.parent
-VENV_BIN = CHARM_DIR / ".venv" / "bin"
+VENV_BIN = CHARM_DIR / "venv" / "bin"
 DJANGO_APP_DIR = CHARM_DIR / "src" / "django_app"
 
 TERRASQUID_ENV_FILE = Path("/etc/terrasquid/terrasquid.env")
@@ -301,7 +301,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             EnvironmentFile={TERRASQUID_ENV_FILE}
             Environment=PYTHONPATH={DJANGO_APP_DIR}
             WorkingDirectory={DJANGO_APP_DIR}
-            ExecStart={VENV_BIN}/gunicorn \\
+            ExecStart={VENV_BIN}/python -m gunicorn \\
                 --workers {workers} \\
                 --bind 0.0.0.0:{api_port} \\
                 --timeout 120 \\
