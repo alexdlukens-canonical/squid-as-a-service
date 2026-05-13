@@ -55,6 +55,17 @@ actions:
     description: List all API keys (name, prefix, created, revoked status).
   reconfigure:
     description: Manually trigger Squid config re-render and reload on this unit.
+  createsuperuser:
+    description: Create a Django superuser for admin UI access
+    params:
+      username:
+        type: string
+        description: Username for the superuser
+      email:
+        type: string
+        description: Email address for the superuser
+        default: admin@example.com
+    required: [username]
 
 requires:
   database:

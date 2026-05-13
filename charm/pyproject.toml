@@ -18,6 +18,8 @@ dependencies = [
     "gunicorn",
     "psycopg[binary]>=3.3",
     "Jinja2",
+    "whitenoise",
+    "dj-database-url",
 ]
 
 [project.optional-dependencies]
@@ -39,7 +41,9 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "D", "UP", "B", "C4", "SIM", "ARG"]
-ignore = ["D100", "D104", "D107", "D203", "D213"]
+ignore = ["D100", "D104", "D107", "D203", "D213", "D102"]
+# Ignore docstring errors in migration files and Meta class warnings in models and serializers
+per-file-ignores = {"src/django_app/terrasquid/api/migrations/*.py" = ["D"], "src/django_app/terrasquid/api/models.py" = ["D106"], "src/django_app/terrasquid/api/serializers.py" = ["D106"]}
 
 [tool.pyright]
 pythonVersion = "3.12"
@@ -48,7 +52,7 @@ exclude = ["**/__pycache__"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "terrasquid.settings"
-pythonpath = ["src", "src/terrasquid"]
+pythonpath = ["src/django_app", "src"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
