@@ -1,0 +1,16 @@
+service_name: test-ruleset
+service_type: network.proxy_ruleset
+destinations:
+  - name: allow-web
+    dst: example.com
+    type: ALLOW
+    ports: [80, 443]
+  - name: allow-api
+    dst: .api.example.com
+    type: CONNECT
+    ports: [443]
+  - name: internal-service
+    dst: 10.0.0.0/24
+    type: ALLOW
+    ports: [8080]
+    port_groups: ["web"]

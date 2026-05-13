@@ -1,0 +1,16 @@
+service_name: test-compute-model
+service_type: compute.juju_model
+access_rules:
+  - name: allow-http
+    dst: archive.ubuntu.com
+    type: ALLOW
+    ports: [80, 443]
+    priority: 100
+  - name: allow-https-tunnel
+    dst: .github.com
+    type: CONNECT
+    ports: [443]
+    priority: 100
+access_rulesets:
+  - test-ruleset
+use_proxy_provider: true

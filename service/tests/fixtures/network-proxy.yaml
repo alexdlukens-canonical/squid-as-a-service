@@ -1,0 +1,14 @@
+service_name: test-proxy
+service_type: network.proxy
+access_rules:
+  - name: proxy-access
+    dst: example.com
+    type: ALLOW
+    ports: [80, 443]
+access_rulesets: []
+use_proxy_provider: true
+squid:
+  charm_name: squid
+  channel: latest/stable
+  config:
+    squid-port: "3128"

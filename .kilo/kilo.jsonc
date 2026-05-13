@@ -1,6 +1,5 @@
 {
   "$schema": "https://app.kilo.ai/config.json",
-
   // Per-model OpenRouter options. Everything under `options` is forwarded
   // verbatim to the OpenRouter API as providerOptions.openrouter.
   "provider": {
@@ -18,7 +17,6 @@
             "include_reasoning": true
           }
         },
-
         // Code mode: medium reasoning. /speckit.implement is mechanical
         // work and heavy reasoning is mostly wasted overhead here.
         "moonshotai/kimi-k2.6": {
@@ -30,7 +28,6 @@
             "include_reasoning": true
           }
         },
-
         // Plan/Architect mode: high reasoning for spec decomposition.
         "z-ai/glm-5.1": {
           "options": {
@@ -41,7 +38,6 @@
             "include_reasoning": true
           }
         },
-
         // Ask mode: no reasoning config — keep this fast and cheap.
         "qwen/qwen-3.6-27b": {
           "options": {}
@@ -49,17 +45,14 @@
       }
     }
   },
-
   // Don't route through Kilo's own gateway; use OpenRouter directly.
   "disabled_providers": [
     "kilo"
   ],
-
   // Hackathon convenience — auto-approve bash. Tighten for production.
   "permission": {
     "bash": "allow"
   },
-
   // Per-mode model assignments. Switching modes (Cmd+. / Ctrl+.) in the
   // Kilo chat box auto-switches the underlying model.
   "agent": {
@@ -67,7 +60,7 @@
       "model": "openrouter/z-ai/glm-5.1"
     },
     "code": {
-      "model": "openrouter/moonshotai/kimi-k2.6"
+      "model": "openrouter/tencent/hy3-preview"
     },
     "debug": {
       "model": "openrouter/deepseek/deepseek-v4-pro"
@@ -76,11 +69,9 @@
       "model": "openrouter/qwen/qwen-3.6-27b"
     }
   },
-
   "indexing": {
     "enabled": true
   },
-
   // Global default — prefer low-latency OpenRouter providers over peak
   // throughput. Helps avoid landing on a cold/slow backend during
   // interactive sessions.

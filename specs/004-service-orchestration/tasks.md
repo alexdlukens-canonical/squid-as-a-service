@@ -30,9 +30,9 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 **Purpose**: Initialize the Python CLI project and tooling
 
-- [ ] T001 Create project directory structure per plan.md (`service/src/terrasquid_render/`, `service/templates/`, `service/tests/unit/`, `service/tests/integration/`, `service/tests/fixtures/`)
-- [ ] T002 Initialize Python 3.12 project with dependencies (Pydantic v2, PyYAML, Jinja2, Typer, pytest) in `service/pyproject.toml`
-- [ ] T003 [P] Configure ruff linting and formatting in `service/pyproject.toml`
+- [X] T001 Create project directory structure per plan.md (`service/src/terrasquid_render/`, `service/templates/`, `service/tests/unit/`, `service/tests/integration/`, `service/tests/fixtures/`)
+- [X] T002 Initialize Python 3.12 project with dependencies (Pydantic v2, PyYAML, Jinja2, Typer, pytest) in `service/pyproject.toml`
+- [X] T003 [P] Configure ruff linting and formatting in `service/pyproject.toml`
 
 ---
 
@@ -44,18 +44,18 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for Foundational (Write First - Must Fail)
 
-- [ ] T004 [P] Write unit tests for `ServiceDefinition` base model in `service/tests/unit/test_models_base.py`
-- [ ] T005 [P] Write unit tests for `AccessRule` model in `service/tests/unit/test_models_base.py`
-- [ ] T006 [P] Write unit tests for `DestinationConfig` model in `service/tests/unit/test_models_base.py`
+- [X] T004 [P] Write unit tests for `ServiceDefinition` base model in `service/tests/unit/test_models_base.py`
+- [X] T005 [P] Write unit tests for `AccessRule` model in `service/tests/unit/test_models_base.py`
+- [X] T006 [P] Write unit tests for `DestinationConfig` model in `service/tests/unit/test_models_base.py`
 
 ### Implementation for Foundational
 
-- [ ] T007 [P] Create `ServiceDefinition` base Pydantic model in `service/src/terrasquid_render/models/base.py`
-- [ ] T008 [P] Create `AccessRule` Pydantic model in `service/src/terrasquid_render/models/base.py`
-- [ ] T009 [P] Create `DestinationConfig` Pydantic model in `service/src/terrasquid_render/models/base.py`
-- [ ] T010 Create `__init__.py` for models package in `service/src/terrasquid_render/models/__init__.py`
-- [ ] T011 [P] Create test fixture YAML files for all 3 service types in `service/tests/fixtures/` (compute, proxy, ruleset examples from contracts/)
-- [ ] T012 [P] Create Jinja2 environment setup and file I/O utilities in `service/src/terrasquid_render/renderer.py`
+- [X] T007 [P] Create `ServiceDefinition` base Pydantic model in `service/src/terrasquid_render/models/base.py`
+- [X] T008 [P] Create `AccessRule` Pydantic model in `service/src/terrasquid_render/models/base.py`
+- [X] T009 [P] Create `DestinationConfig` Pydantic model in `service/src/terrasquid_render/models/base.py`
+- [X] T010 Create `__init__.py` for models package in `service/src/terrasquid_render/models/__init__.py`
+- [X] T011 [P] Create test fixture YAML files for all 3 service types in `service/tests/fixtures/` (compute, proxy, ruleset examples from contracts/)
+- [X] T012 [P] Create Jinja2 environment setup and file I/O utilities in `service/src/terrasquid_render/renderer.py`
 
 **Checkpoint**: Foundation ready - base models validate and rendering infrastructure is initialized. User story implementation can now begin in parallel.
 
@@ -69,23 +69,23 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 1 (Write First - Must Fail)
 
-- [ ] T013 [P] [US1] Write unit tests for `ComputeJujuModel` schema (valid/invalid input) in `service/tests/unit/test_models_juju_model.py`
-- [ ] T014 [P] [US1] Write unit tests for `NetworkProxy` schema (valid/invalid input) in `service/tests/unit/test_models_proxy.py`
-- [ ] T015 [P] [US1] Write unit tests for `NetworkProxyRuleset` schema (valid/invalid input) in `service/tests/unit/test_models_ruleset.py`
-- [ ] T016 [P] [US1] Write unit tests for YAML parser (valid definitions) in `service/tests/unit/test_parser.py`
-- [ ] T017 [P] [US1] Write unit tests for YAML parser (missing required fields) in `service/tests/unit/test_parser.py`
-- [ ] T018 [P] [US1] Write unit tests for YAML parser (invalid field values) in `service/tests/unit/test_parser.py`
-- [ ] T019 [P] [US1] Write unit tests for service name uniqueness enforcement in `service/tests/unit/test_parser.py`
+- [X] T013 [P] [US1] Write unit tests for `ComputeJujuModel` schema (valid/invalid input) in `service/tests/unit/test_models_juju_model.py`
+- [X] T014 [P] [US1] Write unit tests for `NetworkProxy` schema (valid/invalid input) in `service/tests/unit/test_models_proxy.py`
+- [X] T015 [P] [US1] Write unit tests for `NetworkProxyRuleset` schema (valid/invalid input) in `service/tests/unit/test_models_ruleset.py`
+- [X] T016 [P] [US1] Write unit tests for YAML parser (valid definitions) in `service/tests/unit/test_parser.py`
+- [X] T017 [P] [US1] Write unit tests for YAML parser (missing required fields) in `service/tests/unit/test_parser.py`
+- [X] T018 [P] [US1] Write unit tests for YAML parser (invalid field values) in `service/tests/unit/test_parser.py`
+- [X] T019 [P] [US1] Write unit tests for service name uniqueness enforcement in `service/tests/unit/test_parser.py`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [P] [US1] Create `ComputeJujuModel` schema in `service/src/terrasquid_render/models/juju_model.py`
-- [ ] T021 [P] [US1] Create `NetworkProxy` schema in `service/src/terrasquid_render/models/proxy.py`
-- [ ] T022 [P] [US1] Create `NetworkProxyRuleset` schema in `service/src/terrasquid_render/models/ruleset.py`
-- [ ] T023 [US1] Implement YAML parser with Pydantic discriminated union validation in `service/src/terrasquid_render/parser.py`
-- [ ] T024 [US1] Implement validation error formatting (`<filename>: <field_path>: <message>`) in `service/src/terrasquid_render/parser.py`
-- [ ] T025 [US1] Handle edge case: invalid YAML syntax parsing in `service/src/terrasquid_render/parser.py`
-- [ ] T026 [US1] Enforce unique `service_name` across all definitions (VR-001) in `service/src/terrasquid_render/parser.py`
+- [X] T020 [P] [US1] Create `ComputeJujuModel` schema in `service/src/terrasquid_render/models/juju_model.py`
+- [X] T021 [P] [US1] Create `NetworkProxy` schema in `service/src/terrasquid_render/models/proxy.py`
+- [X] T022 [P] [US1] Create `NetworkProxyRuleset` schema in `service/src/terrasquid_render/models/ruleset.py`
+- [X] T023 [US1] Implement YAML parser with Pydantic discriminated union validation in `service/src/terrasquid_render/parser.py`
+- [X] T024 [US1] Implement validation error formatting (`<filename>: <field_path>: <message>`) in `service/src/terrasquid_render/parser.py`
+- [X] T025 [US1] Handle edge case: invalid YAML syntax parsing in `service/src/terrasquid_render/parser.py`
+- [X] T026 [US1] Enforce unique `service_name` across all definitions (VR-001) in `service/src/terrasquid_render/parser.py`
 
 **Checkpoint**: `User Story 1` is fully functional - all 3 service type schemas exist, YAML validation works, and clear errors are produced for invalid input.
 
