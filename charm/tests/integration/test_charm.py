@@ -18,7 +18,7 @@ def _unit_address(juju: jubilant.Juju, app: str, unit_index: int = 0) -> str:
     """Return the IP address of the given application unit."""
     status = juju.status()
     unit_name = f"{app}/{unit_index}"
-    return status.apps[app].units[unit_name].address
+    return status.apps[app].units[unit_name].public_address
 
 
 def _api_url(address: str, port: int = 8080) -> str:
@@ -40,7 +40,7 @@ def test_charm_reaches_active_status(juju, deployed_charms):
     status = juju.status()
     app_status = status.apps[deployed_charms["saas_app"]]
     unit_status = app_status.units[f"{deployed_charms['saas_app']}/0"]
-    assert unit_status.workload_status.value == "active", (
+    assert unit_status.workload_status.current == "active", (
         f"Expected active, got: {unit_status.workload_status}"
     )
 
