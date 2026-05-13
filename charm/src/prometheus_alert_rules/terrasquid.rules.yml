@@ -1,0 +1,20 @@
+groups:
+  - name: terrasquid
+    rules:
+      - alert: TerrasquidAPIValidationFailures
+        expr: rate(terrasquid_api_config_validation_failures_total[5m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Terrasquid API validation failures detected"
+          description: "Config validation has failed {{ $value }} times in the last 5 minutes."
+
+      - alert: TerrasquidWatcherValidationFailure
+        expr: terrasquid_watcher_last_reload_ok == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Terrasquid watcher failed to reload Squid"
+          description: "The config watcher on {{ $labels.unit }} failed to apply the latest configuration."

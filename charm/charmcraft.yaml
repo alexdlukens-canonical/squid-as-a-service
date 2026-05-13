@@ -1,0 +1,67 @@
+name: squid-as-a-service
+summary: Squid-as-a-Service - A Juju machine charm for managing Squid proxy via REST API
+description: |
+  Terrasquid provides a Django REST Framework API for managing Squid proxy
+  ACLs, sources, destinations, and port groups. Supports HA deployments
+  with PostgreSQL and automatic configuration reload.
+base: ubuntu@24.04
+platforms:
+  amd64:
+
+config:
+  options:
+    squid-port:
+      type: int
+      default: 3128
+      description: Port Squid listens on.
+    api-port:
+      type: int
+      default: 8080
+      description: Port the REST API (Gunicorn) listens on.
+    gunicorn-workers:
+      type: int
+      default: 4
+      description: Number of Gunicorn worker processes.
+    squid-extra-config:
+      type: string
+      default: ""
+      description: Extra Squid configuration lines appended to the generated config.
+
+actions:
+  create-key:
+    description: Create a new API key for a service.
+    params:
+      name:
+        type: string
+        description: Human-readable name for the API key.
+    required: [name]
+  revoke-key:
+    description: Revoke an existing API key by name.
+    params:
+      name:
+        type: string
+        description: Name of the API key to revoke.
+    required: [name]
+  rotate-key:
+    description: Rotate (revoke and recreate) an API key by name.
+    params:
+      name:
+        type: string
+        description: Name of the API key to rotate.
+    required: [name]
+  list-keys:
+    description: List all API keys (name, prefix, created, revoked status).
+  reconfigure:
+    description: Manually trigger Squid config re-render and reload on this unit.
+
+requires:
+  database:
+    interface: postgresql_client
+    limit: 1
+  cos-agent:
+    interface: cos_agent
+    optional: true
+
+peers:
+  squid-aaas-peers:
+    interface: squid_aaas_peers
