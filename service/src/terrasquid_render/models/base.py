@@ -66,3 +66,48 @@ class AccessRule(BaseModel):
             if not 1 <= port <= 65535:
                 raise ValueError(f"Port {port} is not in range 1-65535")
         return self
+
+
+class DestinationConfig(BaseModel):
+    """Destination configuration for proxy rulesets."""
+
+    name: str = Field(
+        ...,
+        pattern=r"^[a-zA-Z0-9_-]+$",
+        max_length=63,
+        description="Destination identifier",
+    )
+    dst: str = Field(
+        ...,
+        description="Destination target: valid domain, wildcard (leading '.'), or CIDR",
+    )
+    type: Literal["ALLOW", "DENY", "CONNECT"] = Field(
+        ...,
+        description="Access type",
+    )
+    ports: list[int] = Field(
+        default_factory=list,
+        description="Port numbers (1-65535 each)",
+    )
+    port_groups: list[str] = Field(
+        default_factory=list,
+        description="Named port group references",
+    )
+
+    @model_validator(mode="after")
+    def set_default_ports(self):
+        """Set default ports based on type if not specified."""
+        if not self.ports:
+            if self.type == "CONNECT":
+                self.ports = [443]
+            else:
+                self.ports = [80]
+        return self
+
+    @model_validator(mode="after")
+    def check_port_range(self):
+        """Validate port numbers are in range 1-65535."""
+        for port in self.ports:
+            if not 1 <= port <= 65535:
+                raise ValueError(f"Port {port} is not in range 1-65535")
+        return self

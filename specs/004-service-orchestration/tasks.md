@@ -52,7 +52,7 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 - [X] T007 [P] Create `ServiceDefinition` base Pydantic model in `service/src/terrasquid_render/models/base.py`
 - [X] T008 [P] Create `AccessRule` Pydantic model in `service/src/terrasquid_render/models/base.py`
-- [ ] T009 [P] Create `DestinationConfig` Pydantic model in `service/src/terrasquid_render/models/base.py`
+- [X] T009 [P] Create `DestinationConfig` Pydantic model in `service/src/terrasquid_render/models/base.py`
 - [ ] T010 Create `__init__.py` for models package in `service/src/terrasquid_render/models/__init__.py`
 - [ ] T011 [P] Create test fixture YAML files for all 3 service types in `service/tests/fixtures/` (compute, proxy, ruleset examples from contracts/)
 - [ ] T012 [P] Create Jinja2 environment setup and file I/O utilities in `service/src/terrasquid_render/renderer.py`
