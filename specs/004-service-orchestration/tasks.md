@@ -50,7 +50,7 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Implementation for Foundational
 
-- [ ] T007 [P] Create `ServiceDefinition` base Pydantic model in `service/src/terrasquid_render/models/base.py`
+- [X] T007 [P] Create `ServiceDefinition` base Pydantic model in `service/src/terrasquid_render/models/base.py`
 - [ ] T008 [P] Create `AccessRule` Pydantic model in `service/src/terrasquid_render/models/base.py`
 - [ ] T009 [P] Create `DestinationConfig` Pydantic model in `service/src/terrasquid_render/models/base.py`
 - [ ] T010 Create `__init__.py` for models package in `service/src/terrasquid_render/models/__init__.py`
