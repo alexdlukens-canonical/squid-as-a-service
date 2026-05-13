@@ -82,7 +82,8 @@ class TerrasquidCharm(ops.CharmBase):
         """Install Squid and set up systemd services."""
         self.unit.status = ops.MaintenanceStatus("Installing Squid")
         subprocess.run(["apt-get", "update", "-qq"], check=False)
-        subprocess.run(["apt-get", "install", "-y", "-qq", "squid"], check=False)
+        subprocess.run(["apt-get", "install", "-y", "-qq", "squid", "python3-venv"], check=False)
+        self._setup_terrasquid_workdir()
         self._write_base_squid_config()
         self._write_systemd_units()
         self.unit.status = ops.BlockedStatus("Waiting for database relation")
@@ -111,10 +112,81 @@ class TerrasquidCharm(ops.CharmBase):
         Path("/etc/squid/squid.conf").write_text(config)
         Path("/etc/squid/conf.d").mkdir(parents=True, exist_ok=True)
 
+    def _setup_terrasquid_workdir(self) -> None:
+        """Create the terrasquid working directory, virtualenv, and install workload code."""
+        workdir = Path("/var/lib/terrasquid")
+        workdir.mkdir(parents=True, exist_ok=True)
+
+        # Create a virtualenv for the workload
+        venv_path = workdir / ".venv"
+        subprocess.run(["python3", "-m", "venv", str(venv_path)], check=True)
+
+        # Install workload Python dependencies into the virtualenv
+        pip = venv_path / "bin" / "pip"
+        subprocess.run([str(pip), "install", "--upgrade", "pip"], check=False)
+        subprocess.run(
+            [str(pip), "install", "--no-cache-dir"]
+            + self._workload_dependencies(),
+            check=True,
+        )
+
+        # Copy workload source code into the working directory
+        charm_src = Path(__file__).resolve().parent
+        terrasquid_src = charm_src / "terrasquid"
+        watcher_src = charm_src / "watcher.py"
+        squid_src = charm_src / "squid.py"
+
+        if terrasquid_src.exists():
+            subprocess.run(
+                ["cp", "-r", str(terrasquid_src), str(workdir / "terrasquid")],
+                check=False,
+            )
+        if watcher_src.exists():
+            subprocess.run(["cp", str(watcher_src), str(workdir / "watcher.py")], check=False)
+        if squid_src.exists():
+            subprocess.run(["cp", str(squid_src), str(workdir / "squid.py")], check=False)
+
+        # Ensure the watcher can find squid.py on PYTHONPATH by creating a .pth file
+        site_packages = list((venv_path / "lib").glob("python3.*/site-packages"))
+        if site_packages:
+            (site_packages[0] / "terrasquid.pth").write_text(str(workdir) + "\n")
+
+        subprocess.run(
+            ["chown", "-R", "www-data:www-data", str(workdir)],
+            check=False,
+        )
+
     def _write_systemd_units(self) -> None:
-        """Write systemd unit files for gunicorn and watcher."""
-        # Placeholder - will be populated on database relation
-        pass
+        """Write placeholder systemd unit files during install."""
+        # Units will be fully populated when the database relation is established
+        Path("/etc/systemd/system/gunicorn-terrasquid.service").write_text(
+            GUNICORN_UNIT.format(
+                database_url="",
+                secret_key="",
+                api_port=self.config.get("api-port", 8080),
+                workers=self.config.get("gunicorn-workers", 4),
+            )
+        )
+        Path("/etc/systemd/system/terrasquid-watcher.service").write_text(
+            WATCHER_UNIT.format(
+                database_url="",
+                unit_name=str(self.unit.name),
+                is_leader="false",
+            )
+        )
+
+    def _workload_dependencies(self) -> list[str]:
+        """Return the list of pip packages required by the workload."""
+        return [
+            "django>=5.2,<6",
+            "djangorestframework>=3.15",
+            "djangorestframework-api-key>=3.1",
+            "drf-spectacular",
+            "gunicorn",
+            "psycopg[binary]>=3.3",
+            "Jinja2",
+            "dj-database-url",
+        ]
 
     def _on_config_changed(self, event: ops.ConfigChangedEvent) -> None:
         """Handle charm config changes."""
@@ -140,7 +212,7 @@ class TerrasquidCharm(ops.CharmBase):
 
         if self.unit.is_leader():
             subprocess.run(
-                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/manage.py", "migrate"],
+                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/terrasquid/manage.py", "migrate"],
                 check=False,
             )
 

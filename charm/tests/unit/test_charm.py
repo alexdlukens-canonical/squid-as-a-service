@@ -1,3 +1,17 @@
+import os
+import sys
+
+# Ensure the charm source tree (including terrasquid.settings) is on PYTHONPATH.
+# terrasquid.settings lives under src/terrasquid/terrasquid/settings.py, so we
+# need src/terrasquid/ on PYTHONPATH so that "import terrasquid.settings" resolves.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "terrasquid"))
+# Also add src/ so that "import squid" resolves to src/squid.py.
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "terrasquid.settings")
+
+import django
+django.setup()
+
 """Unit tests for Terrasquid charm actions."""
 import json
 from pathlib import Path
