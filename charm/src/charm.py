@@ -95,6 +95,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         subprocess.run(["systemctl", "daemon-reload"], check=True)
         if self._database_url():
             self._run_manage("migrate", "--noinput")
+            self._run_manage("collectstatic", "--noinput")
             self._reload_gunicorn()
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
@@ -115,6 +116,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.unit.status = ops.MaintenanceStatus("Configuring database")
         self._write_env_file()
         self._run_manage("migrate", "--noinput")
+        self._run_manage("collectstatic", "--noinput")
         self._start_services()
 
     def _on_database_endpoints_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
