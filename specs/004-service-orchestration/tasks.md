@@ -69,23 +69,23 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 1 (Write First - Must Fail)
 
-- [ ] T013 [P] [US1] Write unit tests for `ComputeJujuModel` schema (valid/invalid input) in `service/tests/unit/test_models_juju_model.py`
-- [ ] T014 [P] [US1] Write unit tests for `NetworkProxy` schema (valid/invalid input) in `service/tests/unit/test_models_proxy.py`
-- [ ] T015 [P] [US1] Write unit tests for `NetworkProxyRuleset` schema (valid/invalid input) in `service/tests/unit/test_models_ruleset.py`
-- [ ] T016 [P] [US1] Write unit tests for YAML parser (valid definitions) in `service/tests/unit/test_parser.py`
-- [ ] T017 [P] [US1] Write unit tests for YAML parser (missing required fields) in `service/tests/unit/test_parser.py`
-- [ ] T018 [P] [US1] Write unit tests for YAML parser (invalid field values) in `service/tests/unit/test_parser.py`
-- [ ] T019 [P] [US1] Write unit tests for service name uniqueness enforcement in `service/tests/unit/test_parser.py`
+- [X] T013 [P] [US1] Write unit tests for `ComputeJujuModel` schema (valid/invalid input) in `service/tests/unit/test_models_juju_model.py`
+- [X] T014 [P] [US1] Write unit tests for `NetworkProxy` schema (valid/invalid input) in `service/tests/unit/test_models_proxy.py`
+- [X] T015 [P] [US1] Write unit tests for `NetworkProxyRuleset` schema (valid/invalid input) in `service/tests/unit/test_models_ruleset.py`
+- [X] T016 [P] [US1] Write unit tests for YAML parser (valid definitions) in `service/tests/unit/test_parser.py`
+- [X] T017 [P] [US1] Write unit tests for YAML parser (missing required fields) in `service/tests/unit/test_parser.py`
+- [X] T018 [P] [US1] Write unit tests for YAML parser (invalid field values) in `service/tests/unit/test_parser.py`
+- [X] T019 [P] [US1] Write unit tests for service name uniqueness enforcement in `service/tests/unit/test_parser.py`
 
 ### Implementation for User Story 1
 
-- [ ] T020 [P] [US1] Create `ComputeJujuModel` schema in `service/src/terrasquid_render/models/juju_model.py`
-- [ ] T021 [P] [US1] Create `NetworkProxy` schema in `service/src/terrasquid_render/models/proxy.py`
-- [ ] T022 [P] [US1] Create `NetworkProxyRuleset` schema in `service/src/terrasquid_render/models/ruleset.py`
-- [ ] T023 [US1] Implement YAML parser with Pydantic discriminated union validation in `service/src/terrasquid_render/parser.py`
-- [ ] T024 [US1] Implement validation error formatting (`<filename>: <field_path>: <message>`) in `service/src/terrasquid_render/parser.py`
-- [ ] T025 [US1] Handle edge case: invalid YAML syntax parsing in `service/src/terrasquid_render/parser.py`
-- [ ] T026 [US1] Enforce unique `service_name` across all definitions (VR-001) in `service/src/terrasquid_render/parser.py`
+- [X] T020 [P] [US1] Create `ComputeJujuModel` schema in `service/src/terrasquid_render/models/juju_model.py`
+- [X] T021 [P] [US1] Create `NetworkProxy` schema in `service/src/terrasquid_render/models/proxy.py`
+- [X] T022 [P] [US1] Create `NetworkProxyRuleset` schema in `service/src/terrasquid_render/models/ruleset.py`
+- [X] T023 [US1] Implement YAML parser with Pydantic discriminated union validation in `service/src/terrasquid_render/parser.py`
+- [X] T024 [US1] Implement validation error formatting (`<filename>: <field_path>: <message>`) in `service/src/terrasquid_render/parser.py`
+- [X] T025 [US1] Handle edge case: invalid YAML syntax parsing in `service/src/terrasquid_render/parser.py`
+- [X] T026 [US1] Enforce unique `service_name` across all definitions (VR-001) in `service/src/terrasquid_render/parser.py`
 
 **Checkpoint**: `User Story 1` is fully functional - all 3 service type schemas exist, YAML validation works, and clear errors are produced for invalid input.
 
