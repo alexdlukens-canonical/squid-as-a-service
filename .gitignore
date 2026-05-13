@@ -4,3 +4,30 @@
 .specify/feature.json
 .workshop.lock
 
+
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# Node.js
+node_modules/
+dist/
+build/
+*.log
+.env*
+
+# Universal
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+.vscode/
+.idea/
+*.charm
+.ruff_cache/
+.pytest_cache/

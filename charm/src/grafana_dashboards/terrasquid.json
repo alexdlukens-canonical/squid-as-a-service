@@ -1,0 +1,61 @@
+{
+  "dashboard": {
+    "title": "Terrasquid",
+    "panels": [
+      {
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(terrasquid_api_requests_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(terrasquid_api_errors_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Denied Requests",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(squid_client_http_errors_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Top Denied Destinations",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, squid_client_http_errors_total)"
+          }
+        ]
+      },
+      {
+        "title": "API Activity",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(terrasquid_api_requests_total[5m])"
+          }
+        ]
+      },
+      {
+        "title": "Config Validation Failures",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(terrasquid_api_config_validation_failures_total[5m])"
+          }
+        ]
+      }
+    ]
+  }
+}

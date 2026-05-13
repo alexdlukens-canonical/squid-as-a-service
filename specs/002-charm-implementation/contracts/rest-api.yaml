@@ -1,0 +1,1078 @@
+openapi: 3.1.0
+info:
+  title: Terrasquid API
+  description: REST API for the Terrasquid (Squid-as-a-Service) charm, consumed by the Terraform provider.
+  version: 1.0.0
+
+servers:
+  - url: https://squid-as-a-service.is.canonical.com/api/v1
+    description: Production server
+
+security:
+  - apiKeyAuth: []
+
+paths:
+  /status/:
+    get:
+      summary: Get unit status
+      description: Unauthenticated endpoint returning the current sync state of the responding unit.
+      security: []
+      responses:
+        '200':
+          description: Unit status retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Status'
+
+  /sources/:
+    get:
+      summary: List source ACLs
+      description: Returns all source ACLs belonging to the authenticated caller's service label.
+      responses:
+        '200':
+          description: A list of source ACLs.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceACL'
+    post:
+      summary: Create a source ACL
+      description: Creates a new source ACL. If a resource with the same `(service, name)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceACLInput'
+      responses:
+        '201':
+          description: Source ACL created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceACL'
+        '200':
+          description: Source ACL already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceACL'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /sources/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve a source ACL
+      description: Returns the full source ACL matching the provider's service label, or HTTP 404 if not found.
+      responses:
+        '200':
+          description: Source ACL retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceACL'
+        '404':
+          description: Source ACL not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a source ACL
+      description: Updates the source ACL, re-validates the resulting Squid config, and returns the updated resource.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceACLInput'
+      responses:
+        '200':
+          description: Source ACL updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceACL'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Source ACL not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a source ACL
+      description: Removes the source ACL, triggers config re-render, and returns HTTP 204.
+      responses:
+        '204':
+          description: Source ACL deleted successfully.
+        '404':
+          description: Source ACL not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /source-groups/:
+    get:
+      summary: List source groups
+      description: Returns all source groups belonging to the authenticated caller's service label. Allows lookup by name across service boundaries when using the `name` query parameter.
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: Lookup a source group by name across service boundaries.
+      responses:
+        '200':
+          description: A list of source groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SourceGroup'
+    post:
+      summary: Create a source group
+      description: Creates a new source group. If a resource with the same `(service, name)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceGroupInput'
+      responses:
+        '201':
+          description: Source group created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '200':
+          description: Source group already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /source-groups/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve a source group
+      responses:
+        '200':
+          description: Source group retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '404':
+          description: Source group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a source group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SourceGroupInput'
+      responses:
+        '200':
+          description: Source group updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SourceGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Source group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a source group
+      responses:
+        '204':
+          description: Source group deleted successfully.
+        '404':
+          description: Source group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /destinations/:
+    get:
+      summary: List destination configurations
+      description: Returns all destination configurations belonging to the authenticated caller's service label.
+      responses:
+        '200':
+          description: A list of destination configurations.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DestinationConfig'
+    post:
+      summary: Create a destination configuration
+      description: Creates a new destination configuration. If a resource with the same `(service, name)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DestinationConfigInput'
+      responses:
+        '201':
+          description: Destination configuration created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationConfig'
+        '200':
+          description: Destination configuration already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationConfig'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /destinations/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve a destination configuration
+      responses:
+        '200':
+          description: Destination configuration retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationConfig'
+        '404':
+          description: Destination configuration not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a destination configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DestinationConfigInput'
+      responses:
+        '200':
+          description: Destination configuration updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationConfig'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Destination configuration not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a destination configuration
+      responses:
+        '204':
+          description: Destination configuration deleted successfully.
+        '404':
+          description: Destination configuration not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /destination-groups/:
+    get:
+      summary: List destination groups
+      description: Returns all destination groups belonging to the authenticated caller's service label. Allows lookup by name across service boundaries when using the `name` query parameter.
+      parameters:
+        - name: name
+          in: query
+          schema:
+            type: string
+          description: Lookup a destination group by name across service boundaries.
+      responses:
+        '200':
+          description: A list of destination groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/DestinationGroup'
+    post:
+      summary: Create a destination group
+      description: Creates a new destination group. If a resource with the same `(service, name)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DestinationGroupInput'
+      responses:
+        '201':
+          description: Destination group created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationGroup'
+        '200':
+          description: Destination group already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /destination-groups/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve a destination group
+      responses:
+        '200':
+          description: Destination group retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationGroup'
+        '404':
+          description: Destination group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a destination group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DestinationGroupInput'
+      responses:
+        '200':
+          description: Destination group updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DestinationGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Destination group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a destination group
+      responses:
+        '204':
+          description: Destination group deleted successfully.
+        '404':
+          description: Destination group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /port-groups/:
+    get:
+      summary: List port groups
+      description: Returns all port groups belonging to the authenticated caller's service label.
+      responses:
+        '200':
+          description: A list of port groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PortGroup'
+    post:
+      summary: Create a port group
+      description: Creates a new port group. If a resource with the same `(service, name)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortGroupInput'
+      responses:
+        '201':
+          description: Port group created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortGroup'
+        '200':
+          description: Port group already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /port-groups/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve a port group
+      responses:
+        '200':
+          description: Port group retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortGroup'
+        '404':
+          description: Port group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update a port group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PortGroupInput'
+      responses:
+        '200':
+          description: Port group updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PortGroup'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: Port group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete a port group
+      responses:
+        '204':
+          description: Port group deleted successfully.
+        '404':
+          description: Port group not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /acl-rules/:
+    get:
+      summary: List ACL rules
+      description: Returns all ACL rules belonging to the authenticated caller's service label.
+      responses:
+        '200':
+          description: A list of ACL rules.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ACLRule'
+    post:
+      summary: Create an ACL rule
+      description: Creates a new ACL rule. If a resource with the same `(service, src/src_group, dst/dst_group)` exists, returns the existing resource with HTTP 200.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ACLRuleInput'
+      responses:
+        '201':
+          description: ACL rule created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ACLRule'
+        '200':
+          description: ACL rule already exists (de-duplication).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ACLRule'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /acl-rules/{id}/:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      summary: Retrieve an ACL rule
+      responses:
+        '200':
+          description: ACL rule retrieved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ACLRule'
+        '404':
+          description: ACL rule not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    put:
+      summary: Update an ACL rule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ACLRuleInput'
+      responses:
+        '200':
+          description: ACL rule updated successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ACLRule'
+        '400':
+          description: Validation error.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: ACL rule not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '422':
+          description: Squid configuration validation failed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+    delete:
+      summary: Delete an ACL rule
+      responses:
+        '204':
+          description: ACL rule deleted successfully.
+        '404':
+          description: ACL rule not found.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    apiKeyAuth:
+      type: apiKey
+      in: header
+      name: Authorization
+      description: API key provided in the format `Api-Key <key>`.
+
+  schemas:
+    Status:
+      type: object
+      required:
+        - db_config_version
+        - applied_config_version
+        - last_reload
+        - last_reload_ok
+        - unit
+      properties:
+        db_config_version:
+          type: integer
+          description: Current configuration version in the database.
+        applied_config_version:
+          type: integer
+          description: Configuration version currently applied on this unit.
+        last_reload:
+          type: string
+          format: date-time
+          description: Timestamp of the last Squid reload attempt.
+        last_reload_ok:
+          type: boolean
+          description: Whether the last reload was successful.
+        unit:
+          type: string
+          description: Juju unit identifier (e.g., squid-as-a-service/1).
+
+    BaseResource:
+      type: object
+      required:
+        - id
+        - service
+        - name
+        - key_prefix
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+          description: Unique identifier for the resource.
+        service:
+          type: string
+          description: Service label for isolation and attribution.
+          pattern: '^[a-zA-Z0-9_-]+$'
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        key_prefix:
+          type: string
+          description: First 8 characters of the API key used to create the resource, for audit purposes.
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the resource was created.
+        updated_at:
+          type: string
+          format: date-time
+          description: Timestamp when the resource was last updated.
+
+    SourceACL:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - cidr
+          properties:
+            cidr:
+              type: array
+              items:
+                type: string
+                description: Valid IPv4 or IPv6 CIDR notation (e.g., 10.0.0.0/24, 2001:db8::/32).
+
+    SourceACLInput:
+      type: object
+      required:
+        - name
+        - cidr
+      properties:
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        cidr:
+          type: array
+          items:
+            type: string
+            description: Valid IPv4 or IPv6 CIDR notation.
+
+    SourceGroup:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - sources
+          properties:
+            sources:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: IDs of SourceACL resources belonging to this group.
+
+    SourceGroupInput:
+      type: object
+      required:
+        - name
+        - sources
+      properties:
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        sources:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: IDs of SourceACL resources to include in this group.
+
+    DestinationConfig:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - dst
+            - type
+          properties:
+            dst:
+              type: string
+              description: Valid domain, wildcard subdomain (leading `.`), or CIDR block.
+            type:
+              type: string
+              enum: [ALLOW, DENY, CONNECT]
+            ports:
+              type: array
+              items:
+                type: integer
+                minimum: 1
+                maximum: 65535
+              description: Explicit port list. Defaults to [80] for ALLOW/DENY and [443] for CONNECT if not provided.
+            port_groups:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: IDs of PortGroup resources; merged with `ports` at render time.
+
+    DestinationConfigInput:
+      type: object
+      required:
+        - name
+        - dst
+        - type
+      properties:
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        dst:
+          type: string
+          description: Valid domain, wildcard subdomain (leading `.`), or CIDR block.
+        type:
+          type: string
+          enum: [ALLOW, DENY, CONNECT]
+        ports:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 65535
+          description: Explicit port list.
+        port_groups:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: IDs of PortGroup resources; merged with `ports` at render time.
+
+    DestinationGroup:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - destinations
+          properties:
+            destinations:
+              type: array
+              items:
+                type: string
+                format: uuid
+              description: IDs of DestinationConfig resources belonging to this group.
+
+    DestinationGroupInput:
+      type: object
+      required:
+        - name
+        - destinations
+      properties:
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        destinations:
+          type: array
+          items:
+            type: string
+            format: uuid
+          description: IDs of DestinationConfig resources to include in this group.
+
+    PortGroup:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - ports
+          properties:
+            ports:
+              type: array
+              items:
+                type: integer
+                minimum: 1
+                maximum: 65535
+              description: Port numbers in the range 1–65535.
+
+    PortGroupInput:
+      type: object
+      required:
+        - name
+        - ports
+      properties:
+        name:
+          type: string
+          description: Unique name within the service namespace.
+          pattern: '^[a-zA-Z0-9_-]+$'
+          maxLength: 63
+        ports:
+          type: array
+          items:
+            type: integer
+            minimum: 1
+            maximum: 65535
+          description: Port numbers in the range 1–65535.
+
+    ACLRule:
+      allOf:
+        - $ref: '#/components/schemas/BaseResource'
+        - type: object
+          required:
+            - priority
+            - src_xor_src_group
+            - dst_xor_dst_group
+          properties:
+            priority:
+              type: integer
+              default: 100
+              description: Determines the position of this rule in the rendered Squid config. Lower values are evaluated first.
+            src:
+              type: string
+              format: uuid
+              nullable: true
+              description: ID of a SourceACL resource. Exactly one of `src` or `src_group` must be set.
+            src_group:
+              type: string
+              format: uuid
+              nullable: true
+              description: ID of a SourceGroup resource. Exactly one of `src` or `src_group` must be set.
+            dst:
+              type: string
+              format: uuid
+              nullable: true
+              description: ID of a DestinationConfig resource. Exactly one of `dst` or `dst_group` must be set.
+            dst_group:
+              type: string
+              format: uuid
+              nullable: true
+              description: ID of a DestinationGroup resource. Exactly one of `dst` or `dst_group` must be set.
+
+    ACLRuleInput:
+      type: object
+      required:
+        - src_xor_src_group
+        - dst_xor_dst_group
+      properties:
+        priority:
+          type: integer
+          default: 100
+          description: Determines the position of this rule in the rendered Squid config. Lower values are evaluated first.
+        src:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of a SourceACL resource. Exactly one of `src` or `src_group` must be set.
+        src_group:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of a SourceGroup resource. Exactly one of `src` or `src_group` must be set.
+        dst:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of a DestinationConfig resource. Exactly one of `dst` or `dst_group` must be set.
+        dst_group:
+          type: string
+          format: uuid
+          nullable: true
+          description: ID of a DestinationGroup resource. Exactly one of `dst` or `dst_group` must be set.
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+        message:
+          type: string
+          description: Human-readable description of the error.
+        field_errors:
+          type: object
+          additionalProperties:
+            type: string
+          description: Map of field names to error messages. Required for 400 responses, optional for others.
