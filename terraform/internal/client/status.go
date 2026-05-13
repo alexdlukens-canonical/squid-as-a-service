@@ -8,7 +8,7 @@ import (
 )
 
 func (c *APIClient) GetStatus(ctx context.Context) (*model.Status, error) {
-	resp, err := c.doUnauthenticatedRequest("GET", "/status/")
+	resp, err := c.doUnauthenticatedRequest("GET", "/api/v1/status/")
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
