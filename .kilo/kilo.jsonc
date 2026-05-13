@@ -32,5 +32,8 @@
     "code": {
       "model": "openrouter/moonshotai/kimi-k2.6"
     }
+  },
+  "indexing": {
+    "enabled": true
   }
 }
