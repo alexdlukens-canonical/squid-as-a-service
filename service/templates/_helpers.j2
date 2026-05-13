@@ -1,0 +1,8 @@
+{# Shared helpers for resource naming #}
+{% macro resource_name(service_name, suffix) -%}
+{{ service_name }}-{{ suffix }}
+{%- endmacro %}
+
+{% macro acl_rule_name(service_name, ruleset_name, destination_name) -%}
+{{ service_name }}-{% if ruleset_name %}{{ ruleset_name }}-{% endif %}{{ destination_name }}
+{%- endmacro %}

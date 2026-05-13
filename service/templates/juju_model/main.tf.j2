@@ -1,0 +1,62 @@
+# LXD Project
+resource "lxd_project" "{{ service_name }}" {
+  name = "{{ service_name }}"
+  parent = "default"
+}
+
+# LXD Network
+resource "lxd_network" "{{ service_name }}-br" {
+  name = "{{ service_name }}-br"
+  project = lxd_project.{{ service_name }}.name
+
+  config = {
+    "ipv4.address" = "10.0.0.1/24"
+    "ipv4.nat" = "true"
+    "ipv6.address" = "none"
+  }
+}
+
+# Juju Credential
+resource "juju_credential" "{{ service_name }}-credential" {
+  cloud = "lxd"
+  name = "{{ service_name }}-credential"
+  region = "localhost"
+}
+
+# Juju Model
+resource "juju_model" "{{ service_name }}" {
+  name = "{{ service_name }}"
+  credential = juju_credential.{{ service_name }}-credential.name
+}
+
+{% if use_proxy_provider %}
+# Terrasquid Provider
+terraform {
+  required_providers {
+    terrasquid = {
+      source = "terraform.example.com/example/terrasquid"
+    }
+  }
+}
+
+provider "terrasquid" {
+  # Provider configuration
+}
+{% endif %}
+
+# Access Rules and Destinations
+{% for rule in acl_rules %}
+resource "terrasquid_destination_configuration" "{{ rule.destination_resource_name }}" {
+  name = "{{ rule.destination_resource_name }}"
+  destination = "{{ rule.dst }}"
+  {% if rule.ports %}ports = {{ rule.ports }}{% endif %}
+}
+
+resource "terrasquid_acl_rule" "{{ rule.resource_name }}" {
+  name = "{{ rule.resource_name }}"
+  src = "{{ rule.src }}"
+  destination_configuration = terrasquid_destination_configuration.{{ rule.destination_resource_name }}.name
+  type = "{{ rule.type }}"
+  priority = {{ rule.priority }}
+}
+{% endfor %}
