@@ -1,0 +1,14 @@
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.prof
+vendor/
+.terraform/
+*.tfstate*
+*.tfvars
+.terraform.lock.hcl
+terraform-provider-terrasquid

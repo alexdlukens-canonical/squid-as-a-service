@@ -1,0 +1,10 @@
+service_name: ps7-proxy-production
+service_type: network.proxy
+access_rules: []
+access_rulesets: []
+use_proxy_provider: true
+squid:
+  charm_name: squid
+  channel: latest/stable
+  config:
+    squid-port: "3128"

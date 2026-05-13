@@ -1,0 +1,16 @@
+service_name: canonical-package-repos
+service_type: network.proxy_ruleset
+destinations:
+  - name: ubuntu-archive
+    dst: archive.ubuntu.com
+    type: ALLOW
+    ports: [80, 443]
+  - name: github-api
+    dst: .github.com
+    type: CONNECT
+    ports: [443]
+  - name: internal-pypi
+    dst: .pypi.is.canonical.com
+    type: ALLOW
+    ports: [443]
+    port_groups: []

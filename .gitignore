@@ -1,5 +1,10 @@
-.workshop.lock
+.kilo/agent-manager.json
 .kilo/plans
+.kilocode/rules/specify-rules.md
+.specify/feature.json
+.workshop.lock
+
+
 
 # Python
 __pycache__/
