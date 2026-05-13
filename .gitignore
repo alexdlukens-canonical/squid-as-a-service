@@ -1,4 +1,6 @@
-.workshop.lock
+.kilo/agent-manager.json
 .kilo/plans
-.specify/feature.json
 .kilocode/rules/specify-rules.md
+.specify/feature.json
+.workshop.lock
+
