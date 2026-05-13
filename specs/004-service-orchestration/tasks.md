@@ -30,9 +30,9 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 **Purpose**: Initialize the Python CLI project and tooling
 
-- [ ] T001 Create project directory structure per plan.md (`service/src/terrasquid_render/`, `service/templates/`, `service/tests/unit/`, `service/tests/integration/`, `service/tests/fixtures/`)
-- [ ] T002 Initialize Python 3.12 project with dependencies (Pydantic v2, PyYAML, Jinja2, Typer, pytest) in `service/pyproject.toml`
-- [ ] T003 [P] Configure ruff linting and formatting in `service/pyproject.toml`
+- [X] T001 Create project directory structure per plan.md (`service/src/terrasquid_render/`, `service/templates/`, `service/tests/unit/`, `service/tests/integration/`, `service/tests/fixtures/`)
+- [X] T002 Initialize Python 3.12 project with dependencies (Pydantic v2, PyYAML, Jinja2, Typer, pytest) in `service/pyproject.toml`
+- [X] T003 [P] Configure ruff linting and formatting in `service/pyproject.toml`
 
 ---
 
