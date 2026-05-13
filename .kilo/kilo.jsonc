@@ -1,0 +1,36 @@
+{
+  "$schema": "https://app.kilo.ai/config.json",
+  "provider": {
+    "openrouter": {
+      "models": {
+        "deepseek/deepseek-v4-pro": {
+          "options": {
+            "reasoning": {
+              "effort": "xhigh"
+            }
+          }
+        }
+      }
+    }
+  },
+  "disabled_providers": [
+    "kilo"
+  ],
+  "permission": {
+    "bash": "allow"
+  },
+  "agent": {
+    "plan": {
+      "model": "openrouter/z-ai/glm-5.1"
+    },
+    "debug": {
+      "model": "openrouter/deepseek/deepseek-v4-pro"
+    },
+    "ask": {
+      "model": "openrouter/qwen/qwen-3.6-27b"
+    },
+    "code": {
+      "model": "openrouter/moonshotai/kimi-k2.6"
+    }
+  }
+}
