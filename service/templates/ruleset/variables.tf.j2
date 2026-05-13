@@ -1,0 +1,10 @@
+variable "src_{{ service_name }}" {
+  type = string
+  description = "Source CIDR for ACL rules (from LXD network)"
+}
+
+variable "service_name" {
+  type = string
+  default = "{{ service_name }}"
+  description = "Service name for resource naming"
+}
