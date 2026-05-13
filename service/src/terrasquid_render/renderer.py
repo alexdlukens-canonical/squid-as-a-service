@@ -4,7 +4,6 @@ Provides Jinja2 environment setup and file I/O utilities for rendering
 Terraform templates.
 """
 
-import os
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
@@ -100,28 +99,40 @@ def render_compute_juju_model(model_dict: dict | BaseModel, resolved_rulesets: l
 
     # Inline access rules
     for rule in model_dict.get("access_rules", []):
-        all_acl_rules.append({
-            "resource_name": f"{model_dict['service_name']}-{rule['name']}",
-            "src": f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}",
-            "dst": rule["dst"],
-            "type": rule["type"],
-            "ports": rule.get("ports", []),
-            "priority": rule.get("priority", 100),
-            "destination_resource_name": f"{model_dict['service_name']}-{rule['name']}",
-        })
+        prefix = f"{model_dict['service_name']}"
+        resource_name = f"{prefix}-{rule['name']}"
+        src = f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}"
+
+        all_acl_rules.append(
+            {
+                "resource_name": resource_name,
+                "src": src,
+                "dst": rule["dst"],
+                "type": rule["type"],
+                "ports": rule.get("ports", []),
+                "priority": rule.get("priority", 100),
+                "destination_resource_name": resource_name,
+            }
+        )
 
     # Resolved ruleset destinations
     for ruleset in resolved_rulesets:
+        prefix = f"{model_dict['service_name']}-{ruleset['service_name']}"
         for dest in ruleset.get("destinations", []):
-            all_acl_rules.append({
-                "resource_name": f"{model_dict['service_name']}-{ruleset['service_name']}-{dest['name']}",
-                "src": f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}",
-                "dst": dest["dst"],
-                "type": dest["type"],
-                "ports": dest.get("ports", []),
-                "priority": dest.get("priority", 100),
-                "destination_resource_name": f"{model_dict['service_name']}-{ruleset['service_name']}-{dest['name']}",
-            })
+            resource_name = f"{prefix}-{dest['name']}"
+            src = f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}"
+
+            all_acl_rules.append(
+                {
+                    "resource_name": resource_name,
+                    "src": src,
+                    "dst": dest["dst"],
+                    "type": dest["type"],
+                    "ports": dest.get("ports", []),
+                    "priority": dest.get("priority", 100),
+                    "destination_resource_name": resource_name,
+                }
+            )
 
     context = {
         "service_name": model_dict["service_name"],
@@ -153,28 +164,40 @@ def render_network_proxy(model_dict: dict | BaseModel, resolved_rulesets: list[d
 
     # Inline access rules
     for rule in model_dict.get("access_rules", []):
-        all_acl_rules.append({
-            "resource_name": f"{model_dict['service_name']}-{rule['name']}",
-            "src": f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}",
-            "dst": rule["dst"],
-            "type": rule["type"],
-            "ports": rule.get("ports", []),
-            "priority": rule.get("priority", 100),
-            "destination_resource_name": f"{model_dict['service_name']}-{rule['name']}",
-        })
+        prefix = f"{model_dict['service_name']}"
+        resource_name = f"{prefix}-{rule['name']}"
+        src = f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}"
+
+        all_acl_rules.append(
+            {
+                "resource_name": resource_name,
+                "src": src,
+                "dst": rule["dst"],
+                "type": rule["type"],
+                "ports": rule.get("ports", []),
+                "priority": rule.get("priority", 100),
+                "destination_resource_name": resource_name,
+            }
+        )
 
     # Resolved ruleset destinations
     for ruleset in resolved_rulesets:
+        prefix = f"{model_dict['service_name']}-{ruleset['service_name']}"
         for dest in ruleset.get("destinations", []):
-            all_acl_rules.append({
-                "resource_name": f"{model_dict['service_name']}-{ruleset['service_name']}-{dest['name']}",
-                "src": f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}",
-                "dst": dest["dst"],
-                "type": dest["type"],
-                "ports": dest.get("ports", []),
-                "priority": dest.get("priority", 100),
-                "destination_resource_name": f"{model_dict['service_name']}-{ruleset['service_name']}-{dest['name']}",
-            })
+            resource_name = f"{prefix}-{dest['name']}"
+            src = f"${{lxd_network.{model_dict['service_name']}-br.config[0].ipv4.address}}"
+
+            all_acl_rules.append(
+                {
+                    "resource_name": resource_name,
+                    "src": src,
+                    "dst": dest["dst"],
+                    "type": dest["type"],
+                    "ports": dest.get("ports", []),
+                    "priority": dest.get("priority", 100),
+                    "destination_resource_name": resource_name,
+                }
+            )
 
     # Get squid config
     squid_config = model_dict.get("squid", {})
@@ -211,8 +234,13 @@ def render_services(resolved_services: list[dict], output_dir: Path) -> None:
             write_rendered_output(service_dir / "main.tf", content)
             # Also render variables.tf and outputs.tf
             env = create_jinja2_env()
-            variables = render_template(env, "juju_model/variables.tf.j2", {"service_name": service_name})
-            outputs = render_template(env, "juju_model/outputs.tf.j2", {"service_name": service_name})
+            template_dir = "juju_model"
+            variables = render_template(
+                env, f"{template_dir}/variables.tf.j2", {"service_name": service_name}
+            )
+            outputs = render_template(
+                env, f"{template_dir}/outputs.tf.j2", {"service_name": service_name}
+            )
             write_rendered_output(service_dir / "variables.tf", variables)
             write_rendered_output(service_dir / "outputs.tf", outputs)
 
@@ -222,8 +250,13 @@ def render_services(resolved_services: list[dict], output_dir: Path) -> None:
             write_rendered_output(service_dir / "main.tf", content)
             # Also render variables.tf and outputs.tf
             env = create_jinja2_env()
-            variables = render_template(env, "proxy/variables.tf.j2", {"service_name": service_name})
-            outputs = render_template(env, "proxy/outputs.tf.j2", {"service_name": service_name})
+            template_dir = "proxy"
+            variables = render_template(
+                env, f"{template_dir}/variables.tf.j2", {"service_name": service_name}
+            )
+            outputs = render_template(
+                env, f"{template_dir}/outputs.tf.j2", {"service_name": service_name}
+            )
             write_rendered_output(service_dir / "variables.tf", variables)
             write_rendered_output(service_dir / "outputs.tf", outputs)
 
@@ -233,8 +266,13 @@ def render_services(resolved_services: list[dict], output_dir: Path) -> None:
             write_rendered_output(service_dir / "main.tf", content)
             # Also render variables.tf and outputs.tf
             env = create_jinja2_env()
-            variables = render_template(env, "ruleset/variables.tf.j2", {"service_name": service_name})
-            outputs = render_template(env, "ruleset/outputs.tf.j2", {"service_name": service_name})
+            template_dir = "ruleset"
+            variables = render_template(
+                env, f"{template_dir}/variables.tf.j2", {"service_name": service_name}
+            )
+            outputs = render_template(
+                env, f"{template_dir}/outputs.tf.j2", {"service_name": service_name}
+            )
             write_rendered_output(service_dir / "variables.tf", variables)
             write_rendered_output(service_dir / "outputs.tf", outputs)
 
@@ -266,22 +304,26 @@ def render_network_proxy_ruleset(model_dict: dict | BaseModel) -> str:
         dest_name = dest["name"]
         resource_name = f"{model_dict['service_name']}-{dest_name}"
 
-        destinations.append({
-            "resource_name": resource_name,
-            "name": dest_name,
-            "dst": dest["dst"],
-            "ports": dest.get("ports", []),
-            "port_groups": dest.get("port_groups", []),
-        })
+        destinations.append(
+            {
+                "resource_name": resource_name,
+                "name": dest_name,
+                "dst": dest["dst"],
+                "ports": dest.get("ports", []),
+                "port_groups": dest.get("port_groups", []),
+            }
+        )
 
-        acl_rules.append({
-            "resource_name": resource_name,
-            "src": f"${{var.src_{model_dict['service_name']}}}",
-            "destination_resource_name": resource_name,
-            "type": dest["type"],
-            "ports": dest.get("ports", []),
-            "priority": dest.get("priority", 100),
-        })
+        acl_rules.append(
+            {
+                "resource_name": resource_name,
+                "src": f"${{var.src_{model_dict['service_name']}}}",
+                "destination_resource_name": resource_name,
+                "type": dest["type"],
+                "ports": dest.get("ports", []),
+                "priority": dest.get("priority", 100),
+            }
+        )
 
     context = {
         "service_name": model_dict["service_name"],

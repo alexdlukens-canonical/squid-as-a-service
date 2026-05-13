@@ -1,9 +1,6 @@
-import pytest
-import os
-import tempfile
 from terrasquid_render.parser import parse_service_definitions
-from terrasquid_render.resolver import resolve_ruleset_references
 from terrasquid_render.renderer import render_services
+from terrasquid_render.resolver import resolve_ruleset_references
 
 
 def test_end_to_end_ruleset_renders_tf_files(tmp_path):

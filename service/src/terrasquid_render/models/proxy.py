@@ -12,9 +12,7 @@ class SquidConfig(BaseModel):
 
     charm_name: str = Field(default="squid", description="Charm to deploy")
     channel: str = Field(default="latest/stable", description="Channel to deploy from")
-    config: dict[str, str] | None = Field(
-        default=None, description="Additional charm config"
-    )
+    config: dict[str, str] | None = Field(default=None, description="Additional charm config")
 
 
 class NetworkProxy(ComputeJujuModel):

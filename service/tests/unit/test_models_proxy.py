@@ -49,7 +49,7 @@ class TestNetworkProxy:
         }
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             NetworkProxy(**data)
 
     def test_squid_config_optional(self):
@@ -70,9 +70,7 @@ class TestNetworkProxy:
         data = {
             "service_name": "test-proxy",
             "service_type": "network.proxy",
-            "access_rules": [
-                {"name": "allow-web", "dst": "example.com", "type": "ALLOW"}
-            ],
+            "access_rules": [{"name": "allow-web", "dst": "example.com", "type": "ALLOW"}],
             "use_proxy_provider": True,
         }
         model = NetworkProxy(**data)
@@ -93,5 +91,5 @@ class TestNetworkProxy:
         }
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             NetworkProxy(**data)

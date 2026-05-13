@@ -2,7 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from terrasquid_render.models.base import DestinationConfig, ServiceDefinition
 

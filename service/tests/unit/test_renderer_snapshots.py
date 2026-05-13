@@ -1,4 +1,3 @@
-import pytest
 from terrasquid_render.models.juju_model import ComputeJujuModel
 from terrasquid_render.renderer import render_compute_juju_model
 

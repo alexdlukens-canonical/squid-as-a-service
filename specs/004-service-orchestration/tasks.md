@@ -172,11 +172,11 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 **Purpose**: Final integration, remaining edge cases, and quality gates
 
-- [ ] T056 [P] Write integration test for multi-service repository scan in `service/tests/integration/test_full_scan.py`
-- [ ] T057 [P] Write test confirming circular reference impossibility (VR-003) in `service/tests/unit/test_resolver.py`
-- [ ] T058 [P] Create `__init__.py` for `terrasquid_render` package in `service/src/terrasquid_render/__init__.py`
-- [ ] T059 Run quickstart.md validation end-to-end
-- [ ] T060 [P] Run ruff linting and formatting across `service/` codebase
+- [X] T056 [P] Write integration test for multi-service repository scan in `service/tests/integration/test_full_scan.py`
+- [X] T057 [P] Write test confirming circular reference impossibility (VR-003) in `service/tests/unit/test_resolver.py`
+- [X] T058 [P] Create `__init__.py` for `terrasquid_render` package in `service/src/terrasquid_render/__init__.py`
+- [X] T059 Run quickstart.md validation end-to-end
+- [X] T060 [P] Run ruff linting and formatting across `service/` codebase
 
 ---
 

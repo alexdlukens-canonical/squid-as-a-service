@@ -3,11 +3,9 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Any
 
 import yaml
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from terrasquid_render.models.juju_model import ComputeJujuModel
 from terrasquid_render.models.proxy import NetworkProxy
@@ -31,12 +29,12 @@ def parse_service_definitions(file_paths: list[str]) -> list[BaseModel]:
 
     for file_path in file_paths:
         try:
-            with open(file_path, "r") as f:
+            with open(file_path) as f:
                 content = yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"{os.path.basename(file_path)}: : Invalid YAML syntax: {e}")
-        except FileNotFoundError:
-            raise ValueError(f"{file_path}: File not found")
+            raise ValueError(f"{os.path.basename(file_path)}: : Invalid YAML syntax: {e}") from e
+        except FileNotFoundError as e:
+            raise ValueError(f"{file_path}: File not found") from e
 
         if content is None:
             continue  # Empty file, skip
@@ -62,11 +60,11 @@ def parse_service_definitions(file_paths: list[str]) -> list[BaseModel]:
             service_names[name] = os.path.basename(file_path)
 
         except ValidationError as e:
-            raise ValueError(_format_validation_error(e, file_path))
+            raise ValueError(_format_validation_error(e, file_path)) from e
         except ValueError as e:
             if str(e).startswith(os.path.basename(file_path)):
                 raise
-            raise ValueError(f"{os.path.basename(file_path)}: {e}")
+            raise ValueError(f"{os.path.basename(file_path)}: {e}") from e
 
     return services
 
@@ -96,7 +94,10 @@ def _validate_with_discriminator(data: dict, file_path: str) -> BaseModel:
     elif service_type == "network.proxy_ruleset":
         return NetworkProxyRuleset(**data)
     else:
-        raise ValueError(f": service_type: Input should be 'compute.juju_model', 'network.proxy' or 'network.proxy_ruleset'")  # noqa: E501
+        msg = ": service_type: Input should be "
+        msg += "'compute.juju_model', 'network.proxy' "
+        msg += "or 'network.proxy_ruleset'"
+        raise ValueError(msg)  # noqa: E501
 
 
 def _format_validation_error(e: ValidationError, file_path: str) -> str:

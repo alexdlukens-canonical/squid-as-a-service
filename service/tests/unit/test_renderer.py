@@ -1,7 +1,10 @@
-import pytest
 from terrasquid_render.models.juju_model import ComputeJujuModel
 from terrasquid_render.models.proxy import NetworkProxy
-from terrasquid_render.renderer import render_compute_juju_model, render_network_proxy, render_network_proxy_ruleset
+from terrasquid_render.renderer import (
+    render_compute_juju_model,
+    render_network_proxy,
+    render_network_proxy_ruleset,
+)
 
 
 def test_render_compute_juju_model_includes_lxd_project():
@@ -56,18 +59,13 @@ def test_render_compute_juju_model_includes_inline_access_rules():
     model = ComputeJujuModel(
         service_name="test-service",
         service_type="compute.juju_model",
-        access_rules=[
-            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        access_rules=[{"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
         access_rulesets=[],
         use_proxy_provider=False,
     )
     result = render_compute_juju_model(model, [])
     assert 'resource "terrasquid_acl_rule" "test-service-allow-http"' in result
-    assert (
-        'resource "terrasquid_destination_configuration" "test-service-allow-http"'
-        in result
-    )
+    assert 'resource "terrasquid_destination_configuration" "test-service-allow-http"' in result
 
 
 def test_render_compute_juju_model_includes_resolved_rulesets():
@@ -99,9 +97,7 @@ def test_inline_access_rule_renders_dst():
     model = ComputeJujuModel(
         service_name="test-service",
         service_type="compute.juju_model",
-        access_rules=[
-            {"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        access_rules=[{"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
         access_rulesets=[],
         use_proxy_provider=False,
     )
@@ -113,9 +109,7 @@ def test_inline_access_rule_renders_type():
     model = ComputeJujuModel(
         service_name="test-service",
         service_type="compute.juju_model",
-        access_rules=[
-            {"name": "rule1", "dst": "example.com", "type": "DENY", "ports": [80]}
-        ],
+        access_rules=[{"name": "rule1", "dst": "example.com", "type": "DENY", "ports": [80]}],
         access_rulesets=[],
         use_proxy_provider=False,
     )
@@ -127,9 +121,7 @@ def test_inline_access_rule_renders_ports():
     model = ComputeJujuModel(
         service_name="test-service",
         service_type="compute.juju_model",
-        access_rules=[
-            {"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80, 443]}
-        ],
+        access_rules=[{"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80, 443]}],
         access_rulesets=[],
         use_proxy_provider=False,
     )
@@ -156,9 +148,7 @@ def test_inline_access_rule_src_computed_from_network_output():
     model = ComputeJujuModel(
         service_name="test-service",
         service_type="compute.juju_model",
-        access_rules=[
-            {"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        access_rules=[{"name": "rule1", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
         access_rulesets=[],
         use_proxy_provider=False,
     )
@@ -207,9 +197,7 @@ def test_render_network_proxy_includes_inline_access_rules():
     model = NetworkProxy(
         service_name="test-proxy",
         service_type="network.proxy",
-        access_rules=[
-            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        access_rules=[{"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
         access_rulesets=[],
         use_proxy_provider=True,
     )
@@ -277,9 +265,7 @@ def test_render_network_proxy_ruleset_includes_destinations():
     model = NetworkProxyRuleset(
         service_name="test-ruleset",
         service_type="network.proxy_ruleset",
-        destinations=[
-            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        destinations=[{"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
     )
     result = render_network_proxy_ruleset(model)
     assert 'resource "terrasquid_destination_configuration" "test-ruleset-allow-http"' in result
@@ -308,9 +294,7 @@ def test_render_network_proxy_ruleset_creates_acl_rules():
     model = NetworkProxyRuleset(
         service_name="test-ruleset",
         service_type="network.proxy_ruleset",
-        destinations=[
-            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
-        ],
+        destinations=[{"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}],
     )
     result = render_network_proxy_ruleset(model)
     assert 'resource "terrasquid_acl_rule" "test-ruleset-allow-http"' in result
@@ -340,9 +324,7 @@ def test_render_network_proxy_ruleset_tunnel_type_uses_port_443():
     model = NetworkProxyRuleset(
         service_name="test-ruleset",
         service_type="network.proxy_ruleset",
-        destinations=[
-            {"name": "tunnel-api", "dst": "api.example.com", "type": "CONNECT"}
-        ],
+        destinations=[{"name": "tunnel-api", "dst": "api.example.com", "type": "CONNECT"}],
     )
     result = render_network_proxy_ruleset(model)
     # Default port for CONNECT is 443

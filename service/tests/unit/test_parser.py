@@ -103,7 +103,7 @@ class TestParserMissingRequiredFields:
 service_type: compute.juju_model
 """
         )
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             parse_service_definitions([str(yaml_file)])
         assert "service_name" in str(exc_info.value).lower()
 
@@ -115,7 +115,7 @@ service_type: compute.juju_model
 service_name: test-service
 """
         )
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             parse_service_definitions([str(yaml_file)])
         assert "service_type" in str(exc_info.value).lower()
 
@@ -129,7 +129,7 @@ service_type: network.proxy_ruleset
 destinations: []
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml_file)])
 
     def test_access_rule_missing_required_fields(self, tmp_path):
@@ -144,7 +144,7 @@ access_rules:
     # missing dst and type
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml_file)])
 
 
@@ -160,7 +160,7 @@ service_name: test-service
 service_type: invalid_type
 """
         )
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             parse_service_definitions([str(yaml_file)])
         assert "service_type" in str(exc_info.value).lower()
 
@@ -177,7 +177,7 @@ access_rules:
     type: INVALID_TYPE
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml_file)])
 
     def test_invalid_port_number(self, tmp_path):
@@ -194,7 +194,7 @@ access_rules:
     ports: [0, 80]  # port 0 is invalid
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml_file)])
 
     def test_invalid_service_name_pattern(self, tmp_path):
@@ -206,7 +206,7 @@ service_name: "invalid service!"
 service_type: compute.juju_model
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml_file)])
 
 
@@ -229,7 +229,7 @@ service_name: duplicate-name
 service_type: network.proxy
 """
         )
-        with pytest.raises(Exception) as exc_info:
+        with pytest.raises(ValueError) as exc_info:
             parse_service_definitions([str(yaml1), str(yaml2)])
         assert "duplicate" in str(exc_info.value).lower() or "unique" in str(exc_info.value).lower()
 
@@ -272,5 +272,5 @@ destinations:
     type: ALLOW
 """
         )
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             parse_service_definitions([str(yaml1), str(yaml2)])

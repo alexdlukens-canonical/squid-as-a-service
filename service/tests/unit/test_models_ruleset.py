@@ -40,9 +40,7 @@ class TestNetworkProxyRuleset:
         data = {
             "service_name": "test-ruleset",
             "service_type": "network.proxy_ruleset",
-            "destinations": [
-                {"name": "only-dest", "dst": "example.com", "type": "ALLOW"}
-            ],
+            "destinations": [{"name": "only-dest", "dst": "example.com", "type": "ALLOW"}],
         }
         model = NetworkProxyRuleset(**data)
         assert len(model.destinations) == 1
@@ -55,7 +53,7 @@ class TestNetworkProxyRuleset:
         }
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             NetworkProxyRuleset(**data)
 
     def test_destination_default_ports(self):
@@ -83,7 +81,7 @@ class TestNetworkProxyRuleset:
         }
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             NetworkProxyRuleset(**data)
 
     def test_cidr_destination(self):
@@ -103,9 +101,7 @@ class TestNetworkProxyRuleset:
         data = {
             "service_name": "test-ruleset",
             "service_type": "network.proxy_ruleset",
-            "destinations": [
-                {"name": "api", "dst": ".api.example.com", "type": "CONNECT"}
-            ],
+            "destinations": [{"name": "api", "dst": ".api.example.com", "type": "CONNECT"}],
         }
         model = NetworkProxyRuleset(**data)
         assert model.destinations[0].dst == ".api.example.com"

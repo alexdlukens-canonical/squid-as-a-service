@@ -44,7 +44,7 @@ class TestComputeJujuModel:
         }
         import pytest
 
-        with pytest.raises(Exception):  # Pydantic validation error
+        with pytest.raises(ValueError):  # Pydantic validation error
             ComputeJujuModel(**data)
 
     def test_invalid_access_rule(self):
@@ -52,13 +52,11 @@ class TestComputeJujuModel:
         data = {
             "service_name": "test-service",
             "service_type": "compute.juju_model",
-            "access_rules": [
-                {"name": "bad-rule", "dst": "example.com", "type": "INVALID_TYPE"}
-            ],
+            "access_rules": [{"name": "bad-rule", "dst": "example.com", "type": "INVALID_TYPE"}],
         }
         import pytest
 
-        with pytest.raises(Exception):  # Pydantic validation error
+        with pytest.raises(ValueError):  # Pydantic validation error
             ComputeJujuModel(**data)
 
     def test_access_rule_default_ports(self):
@@ -83,7 +81,7 @@ class TestComputeJujuModel:
         }
         import pytest
 
-        with pytest.raises(Exception):
+        with pytest.raises(ValueError):
             ComputeJujuModel(**data)
 
     def test_access_ruleset_nonexistent_allowed(self):

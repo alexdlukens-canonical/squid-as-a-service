@@ -41,12 +41,12 @@ def resolve_ruleset_references(services: list) -> list[dict[str, Any]]:
                         f"referenced ruleset '{ruleset_name}' not found"
                     )
                 ruleset = rulesets[ruleset_name]
-                resolved.append({
-                    "service_name": ruleset.service_name,
-                    "destinations": [
-                        _model_to_dict(d) for d in ruleset.destinations
-                    ],
-                })
+                resolved.append(
+                    {
+                        "service_name": ruleset.service_name,
+                        "destinations": [_model_to_dict(d) for d in ruleset.destinations],
+                    }
+                )
             service_dict["resolved_rulesets"] = resolved
         else:
             service_dict["resolved_rulesets"] = []
@@ -61,7 +61,5 @@ def _model_to_dict(model) -> dict[str, Any]:
     result = dict(model)
     # Ensure access_rules are also converted
     if "access_rules" in result and result["access_rules"]:
-        result["access_rules"] = [
-            dict(rule) for rule in result["access_rules"]
-        ]
+        result["access_rules"] = [dict(rule) for rule in result["access_rules"]]
     return result

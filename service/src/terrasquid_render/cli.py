@@ -1,17 +1,18 @@
 """CLI entry point for terrasquid-render."""
 
-import os
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 
 from terrasquid_render.parser import parse_service_definitions
-from terrasquid_render.resolver import resolve_ruleset_references
 from terrasquid_render.renderer import render_services
+from terrasquid_render.resolver import resolve_ruleset_references
 
-app = typer.Typer(name="terrasquid-render", help="Render YAML service definitions to Terraform code.")
+app = typer.Typer(
+    name="terrasquid-render",
+    help="Render YAML service definitions to Terraform code.",
+)
 console = Console()
 
 
@@ -30,9 +31,7 @@ def render(
         raise typer.Exit(1)
 
     # Find all YAML files
-    yaml_files = (
-        list(input_path.glob("*.yaml")) + list(input_path.glob("*.yml"))
-    )
+    yaml_files = list(input_path.glob("*.yaml")) + list(input_path.glob("*.yml"))
 
     if not yaml_files:
         console.print(f"[yellow]Warning: No YAML files found in '{input_dir}'.[/yellow]")
@@ -58,13 +57,14 @@ def render(
 
     except ValueError as e:
         console.print(f"[red]Error: {e}[/red]")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from e
 
 
 @app.command()
 def version():
     """Show version information."""
     from terrasquid_render import __version__
+
     console.print(f"terrasquid-render version {__version__}")
 
 
