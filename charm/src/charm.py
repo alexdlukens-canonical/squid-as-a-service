@@ -1,4 +1,5 @@
 """Terrasquid machine charm - Squid-as-a-Service."""
+import json
 import os
 import subprocess
 import urllib.parse
@@ -55,6 +56,10 @@ WantedBy=multi-user.target
 """
 
 
+TERRASQUID_PYTHON = "/var/lib/terrasquid/.venv/bin/python"
+TERRASQUID_MANAGE = "/var/lib/terrasquid/manage.py"
+
+
 class TerrasquidCharm(ops.CharmBase):
     """Terrasquid machine charm."""
 
@@ -82,6 +87,8 @@ class TerrasquidCharm(ops.CharmBase):
         self.unit.status = ops.MaintenanceStatus("Installing Squid")
         subprocess.run(["apt-get", "update", "-qq"], check=False)
         subprocess.run(["apt-get", "install", "-y", "-qq", "squid", "python3-venv"], check=False)
+        Path("/var/www").mkdir(parents=True, exist_ok=True)
+        subprocess.run(["chown", "www-data:www-data", "/var/www"], check=False)
         self._setup_terrasquid_workdir()
         self._write_base_squid_config()
         self._write_systemd_units()
@@ -238,7 +245,7 @@ class TerrasquidCharm(ops.CharmBase):
 
         if self.unit.is_leader():
             subprocess.run(
-                ["/var/lib/terrasquid/.venv/bin/python", "/var/lib/terrasquid/manage.py", "migrate"],
+                [TERRASQUID_PYTHON, TERRASQUID_MANAGE, "migrate"],
                 check=False,
             )
 
@@ -267,19 +274,39 @@ class TerrasquidCharm(ops.CharmBase):
         )
         Path("/etc/systemd/system/terrasquid-watcher.service").write_text(watcher_unit)
 
-    def _setup_django(self) -> None:
-        """Configure Django if not already configured."""
-        import django
-        from django.conf import settings
-        if not settings.configured:
-            os.environ.setdefault("DJANGO_SETTINGS_MODULE", "terrasquid.settings")
-            django.setup()
+    def _run_manage_keys(self, action: str, name: str | None = None) -> dict | None:
+        """Run the manage_keys Django management command via subprocess."""
+        cmd = [TERRASQUID_PYTHON, TERRASQUID_MANAGE, "manage_keys", action]
+        if name:
+            cmd.extend(["--name", name])
+
+        env = os.environ.copy()
+        db_url = env.get("DATABASE_URL", "")
+        if not db_url:
+            self._load_db_url_from_systemd()
+            db_url = os.environ.get("DATABASE_URL", "")
+        env["DATABASE_URL"] = db_url
+
+        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
+        if result.returncode != 0:
+            try:
+                error_data = json.loads(result.stderr)
+                return {"error": error_data.get("error", result.stderr.strip())}
+            except (json.JSONDecodeError, AttributeError):
+                return {"error": result.stderr.strip() or "Unknown error"}
+        return json.loads(result.stdout)
+
+    def _load_db_url_from_systemd(self) -> None:
+        """Read DATABASE_URL from the gunicorn systemd unit Environment line."""
+        unit_file = Path("/etc/systemd/system/gunicorn-terrasquid.service")
+        if unit_file.exists():
+            content = unit_file.read_text()
+            for line in content.splitlines():
+                if line.strip().startswith("Environment=DATABASE_URL="):
+                    os.environ["DATABASE_URL"] = line.strip().split("=", 2)[2]
 
     def _on_create_key(self, event: ops.ActionEvent) -> None:
         """Create a new API key."""
-        self._setup_django()
-        from rest_framework_api_key.models import APIKey
-
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -287,18 +314,17 @@ class TerrasquidCharm(ops.CharmBase):
         if not name:
             event.fail("Name parameter is required.")
             return
-        api_key, generated_key = APIKey.objects.create_key(name=name)
-        event.set_results({
-            "name": api_key.name,
-            "prefix": api_key.prefix,
-            "key": generated_key,
-        })
+        result = self._run_manage_keys("create-key", name)
+        if result is None:
+            event.fail("No response from management command.")
+            return
+        if "error" in result:
+            event.fail(result["error"])
+            return
+        event.set_results(result)
 
     def _on_revoke_key(self, event: ops.ActionEvent) -> None:
         """Revoke an API key."""
-        self._setup_django()
-        from rest_framework_api_key.models import APIKey
-
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -306,20 +332,17 @@ class TerrasquidCharm(ops.CharmBase):
         if not name:
             event.fail("Name parameter is required.")
             return
-        try:
-            api_key = APIKey.objects.get(name=name)
-        except APIKey.DoesNotExist:
-            event.fail(f"API key '{name}' not found.")
+        result = self._run_manage_keys("revoke-key", name)
+        if result is None:
+            event.fail("No response from management command.")
             return
-        api_key.revoked = True
-        api_key.save()
-        event.set_results({"revoked": True, "name": name})
+        if "error" in result:
+            event.fail(result["error"])
+            return
+        event.set_results(result)
 
     def _on_rotate_key(self, event: ops.ActionEvent) -> None:
         """Rotate an API key."""
-        self._setup_django()
-        from rest_framework_api_key.models import APIKey
-
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -327,30 +350,28 @@ class TerrasquidCharm(ops.CharmBase):
         if not name:
             event.fail("Name parameter is required.")
             return
-        try:
-            old_key = APIKey.objects.get(name=name, revoked=False)
-        except APIKey.DoesNotExist:
-            event.fail(f"Active API key '{name}' not found.")
+        result = self._run_manage_keys("rotate-key", name)
+        if result is None:
+            event.fail("No response from management command.")
             return
-        old_key.revoked = True
-        old_key.save()
-        new_key, new_plain = APIKey.objects.create_key(name=name)
-        event.set_results({
-            "name": new_key.name,
-            "prefix": new_key.prefix,
-            "key": new_plain,
-        })
+        if "error" in result:
+            event.fail(result["error"])
+            return
+        event.set_results(result)
 
     def _on_list_keys(self, event: ops.ActionEvent) -> None:
         """List all API keys."""
-        self._setup_django()
-        from rest_framework_api_key.models import APIKey
-
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
-        keys = APIKey.objects.all().values("name", "prefix", "created", "revoked")
-        event.set_results({"keys": list(keys), "count": len(keys)})
+        result = self._run_manage_keys("list-keys")
+        if result is None:
+            event.fail("No response from management command.")
+            return
+        if "error" in result:
+            event.fail(result["error"])
+            return
+        event.set_results(result)
 
     def _on_reconfigure(self, event: ops.ActionEvent) -> None:
         """Manually trigger Squid reconfiguration."""
