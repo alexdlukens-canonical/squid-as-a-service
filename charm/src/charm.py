@@ -76,6 +76,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return
         self._write_env_file()
         self._reload_gunicorn()
+        if self._gunicorn_running():
+            self._open_ports()
 
     def _on_start(self, _event: ops.StartEvent) -> None:
         if not self._database_url():
@@ -86,6 +88,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_stop(self, _event: ops.StopEvent) -> None:
         for svc in (GUNICORN_SERVICE, SQUID_WATCHER_SERVICE, squid.SQUID_SERVICE):
             subprocess.run(["systemctl", "stop", svc], capture_output=True)
+        self.unit.set_ports()
 
     def _on_upgrade_charm(self, _event: ops.UpgradeCharmEvent) -> None:
         self._write_systemd_units()
@@ -101,7 +104,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if not self._gunicorn_running():
             event.add_status(ops.MaintenanceStatus("Starting API service"))
             return
-        event.add_status(ops.ActiveStatus("Squid-as-a-Service ready"))
+        api_status = "up"
+        squid_status = "up" if squid.squid_service_running() else "down"
+        config_version = self._read_applied_config_version()
+        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | config v{config_version}"))
 
     # ── Database relation ─────────────────────────────────────────────────────
 
@@ -347,6 +353,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         subprocess.run(["systemctl", "enable", "--now", GUNICORN_SERVICE], check=True)
         subprocess.run(["systemctl", "enable", "--now", SQUID_WATCHER_TIMER], check=True)
         subprocess.run(["systemctl", "enable", "--now", squid.SQUID_SERVICE], check=True)
+        self._open_ports()
 
     def _reload_gunicorn(self) -> None:
         """Send SIGHUP to Gunicorn to reload workers."""
@@ -358,6 +365,23 @@ class SquidAsAServiceCharm(ops.CharmBase):
             ["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True
         )
         return result.returncode == 0
+
+    def _open_ports(self) -> None:
+        squid_port = int(self.config.get("squid-port", 3128))
+        api_port = int(self.config.get("api-port", 8080))
+        self.unit.set_ports(
+            ops.Port("tcp", squid_port),
+            ops.Port("tcp", api_port),
+        )
+
+    def _read_applied_config_version(self) -> int:
+        if not TERRASQUID_STATUS_FILE.exists():
+            return 0
+        try:
+            data = json.loads(TERRASQUID_STATUS_FILE.read_text())
+            return data.get("applied_config_version", 0)
+        except (json.JSONDecodeError, OSError):
+            return 0
 
     def _db_config_version(self) -> int:
         """Query the current config version from the database."""
