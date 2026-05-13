@@ -36,9 +36,8 @@ def deployed_charms(juju):
 
     juju.deploy(
         "postgresql",
-        channel="14/stable",
-        base="ubuntu@24.04",
-        config={"profile": "testing"},
+        channel="16/stable",
+        base="ubuntu@24.04"
     )
     juju.deploy(
         charm_path,
