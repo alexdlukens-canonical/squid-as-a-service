@@ -5,9 +5,11 @@ from terrasquid_render.models.base import (
     DestinationConfig,
     ServiceDefinition,
 )
+from terrasquid_render.models.juju_model import ComputeJujuModel
 
 __all__ = [
     "AccessRule",
     "DestinationConfig",
     "ServiceDefinition",
+    "ComputeJujuModel",
 ]
