@@ -182,17 +182,17 @@
 
 ### Tests for User Story 5
 
-- [ ] T053 [US5] Write acceptance test for terrasquid_destination_group resource CRUD in terraform/internal/provider/destination_group_resource_test.go
-- [ ] T054 [US5] Write acceptance test for terrasquid_destination_group resource import in terraform/internal/provider/destination_group_resource_test.go
-- [ ] T055 [US5] Write acceptance test for terrasquid_destination_group data source (name lookup) in terraform/internal/provider/destination_group_data_source_test.go
-- [ ] T056 [P] [US5] Write unit tests for API client destination group methods in terraform/internal/client/destination_group_test.go
+- [x] T053 [US5] Write acceptance test for terrasquid_destination_group resource CRUD in terraform/internal/provider/destination_group_resource_test.go
+- [x] T054 [US5] Write acceptance test for terrasquid_destination_group resource import in terraform/internal/provider/destination_group_resource_test.go
+- [x] T055 [US5] Write acceptance test for terrasquid_destination_group data source (name lookup) in terraform/internal/provider/destination_group_data_source_test.go
+- [x] T056 [P] [US5] Write unit tests for API client destination group methods in terraform/internal/client/destination_group_test.go
 
 ### Implementation for User Story 5
 
-- [ ] T057 [P] [US5] Implement API client methods for destination groups in terraform/internal/client/destination_group.go
-- [ ] T058 [US5] Implement terrasquid_destination_group resource (Schema with destinations list, CRUD, ImportState) in terraform/internal/provider/destination_group_resource.go
-- [ ] T059 [US5] Implement terrasquid_destination_group data source (name query parameter lookup) in terraform/internal/provider/destination_group_data_source.go
-- [ ] T060 [US5] Register terrasquid_destination_group resource and data source in provider.go in terraform/internal/provider/provider.go
+- [x] T057 [P] [US5] Implement API client methods for destination groups in terraform/internal/client/destination_group.go
+- [x] T058 [US5] Implement terrasquid_destination_group resource (Schema with destinations list, CRUD, ImportState) in terraform/internal/provider/destination_group_resource.go
+- [x] T059 [US5] Implement terrasquid_destination_group data source (name query parameter lookup) in terraform/internal/provider/destination_group_data_source.go
+- [x] T060 [US5] Register terrasquid_destination_group resource and data source in provider.go in terraform/internal/provider/provider.go
 
 **Checkpoint**: Destination group resource and data source both work independently
 
@@ -206,20 +206,20 @@
 
 ### Tests for User Story 6
 
-- [ ] T061 [US6] Write acceptance test for terrasquid_acl_rule CRUD in terraform/internal/provider/acl_rule_resource_test.go
-- [ ] T062 [US6] Write acceptance test for terrasquid_acl_rule import in terraform/internal/provider/acl_rule_resource_test.go
-- [ ] T063 [US6] Write acceptance test for XOR constraint validation (both src and src_group set → error) in terraform/internal/provider/acl_rule_resource_test.go
-- [ ] T064 [US6] Write acceptance test for group-based ACL rule (src_group + dst_group) in terraform/internal/provider/acl_rule_resource_test.go
-- [ ] T065 [P] [US6] Write unit tests for API client ACL rule methods in terraform/internal/client/acl_rule_test.go
-- [ ] T066 [P] [US6] Write unit tests for XOR validator in terraform/internal/provider/validators_test.go
+- [x] T061 [US6] Write acceptance test for terrasquid_acl_rule CRUD in terraform/internal/provider/acl_rule_resource_test.go
+- [x] T062 [US6] Write acceptance test for terrasquid_acl_rule import in terraform/internal/provider/acl_rule_resource_test.go
+- [x] T063 [US6] Write acceptance test for XOR constraint validation (both src and src_group set → error) in terraform/internal/provider/acl_rule_resource_test.go
+- [x] T064 [US6] Write acceptance test for group-based ACL rule (src_group + dst_group) in terraform/internal/provider/acl_rule_resource_test.go
+- [x] T065 [P] [US6] Write unit tests for API client ACL rule methods in terraform/internal/client/acl_rule_test.go
+- [x] T066 [P] [US6] Write unit tests for XOR validator in terraform/internal/provider/validators_test.go
 
 ### Implementation for User Story 6
 
-- [ ] T067 [P] [US6] Implement API client methods for ACL rules in terraform/internal/client/acl_rule.go
-- [ ] T068 [P] [US6] Implement XOR constraint validator using ConfigValidators() in terraform/internal/provider/validators.go
-- [ ] T069 [US6] Implement terrasquid_acl_rule resource (Schema with nullable src/src_group/dst/dst_group, CRUD, ImportState, ConfigValidators) in terraform/internal/provider/acl_rule_resource.go
-- [ ] T070 [US6] Handle HTTP 200 de-duplication in ACL rule Create method in terraform/internal/provider/acl_rule_resource.go
-- [ ] T071 [US6] Register terrasquid_acl_rule resource in provider.go Resources() in terraform/internal/provider/provider.go
+- [x] T067 [P] [US6] Implement API client methods for ACL rules in terraform/internal/client/acl_rule.go
+- [x] T068 [P] [US6] Implement XOR constraint validator using ConfigValidators() in terraform/internal/provider/validators.go
+- [x] T069 [US6] Implement terrasquid_acl_rule resource (Schema with nullable src/src_group/dst/dst_group, CRUD, ImportState, ConfigValidators) in terraform/internal/provider/acl_rule_resource.go
+- [x] T070 [US6] Handle HTTP 200 de-duplication in ACL rule Create method in terraform/internal/provider/acl_rule_resource.go
+- [x] T071 [US6] Register terrasquid_acl_rule resource in provider.go Resources() in terraform/internal/provider/provider.go
 
 **Checkpoint**: ACL rule resource is fully functional with XOR validation, de-dup, and import
 
@@ -229,10 +229,10 @@
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] T072 [P] Add provider documentation in terraform/docs/ (provider index, all resources, all data sources)
-- [ ] T073 [P] Add example Terraform configurations in terraform/examples/
-- [ ] T074 Add retry logic using terraform-plugin-sdk/helper/retry for transient API errors in terraform/internal/client/client.go
-- [ ] T075 Add drift detection robustness — ensure 404 on Read removes resource from state for all resources in terraform/internal/provider/*_resource.go
+- [x] T072 [P] Add provider documentation in terraform/docs/ (provider index, all resources, all data sources)
+- [x] T073 [P] Add example Terraform configurations in terraform/examples/
+- [x] T074 Add retry logic using terraform-plugin-sdk/helper/retry for transient API errors in terraform/internal/client/client.go
+- [x] T075 Add drift detection robustness — ensure 404 on Read removes resource from state for all resources in terraform/internal/provider/*_resource.go
 - [ ] T076 Run golangci-lint and fix all issues in terraform/
 - [ ] T077 Validate quickstart.md by following it end-to-end against a running API
 - [ ] T078 Add Terraform plan consistency test — apply then plan shows zero changes for all resource types in terraform/internal/provider/
