@@ -168,3 +168,131 @@ def test_access_rule_dst_cidr():
 
     rule = AccessRule(name="cidr", dst="10.0.0.0/24", type="ALLOW")
     assert rule.dst == "10.0.0.0/24"
+
+
+# --- T006: DestinationConfig tests ---
+
+
+def test_destination_config_import():
+    """T006: DestinationConfig model can be imported from base module."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    assert DestinationConfig is not None
+
+
+def test_destination_config_valid_allow():
+    """T006: Valid DestinationConfig with ALLOW type and default ports."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(name="ubuntu-archive", dst="archive.ubuntu.com", type="ALLOW")
+    assert dest.name == "ubuntu-archive"
+    assert dest.dst == "archive.ubuntu.com"
+    assert dest.type == "ALLOW"
+    assert dest.ports == [80]
+    assert dest.port_groups == []
+
+
+def test_destination_config_valid_connect():
+    """T006: Valid DestinationConfig with CONNECT type defaults to port 443."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(name="github-api", dst=".github.com", type="CONNECT")
+    assert dest.ports == [443]
+
+
+def test_destination_config_explicit_ports():
+    """T006: DestinationConfig accepts explicit ports list."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(name="multi", dst="example.com", type="ALLOW", ports=[80, 443])
+    assert dest.ports == [80, 443]
+
+
+def test_destination_config_with_port_groups():
+    """T006: DestinationConfig accepts port_groups list."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(
+        name="grouped", dst="example.com", type="ALLOW", port_groups=["web", "secure"]
+    )
+    assert dest.port_groups == ["web", "secure"]
+
+
+def test_destination_config_invalid_port_range():
+    """T006: DestinationConfig rejects ports outside 1-65535."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="bad", dst="example.com", type="ALLOW", ports=[0])
+
+
+def test_destination_config_invalid_port_high():
+    """T006: DestinationConfig rejects ports above 65535."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="bad", dst="example.com", type="ALLOW", ports=[70000])
+
+
+def test_destination_config_missing_name():
+    """T006: DestinationConfig requires name."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(dst="example.com", type="ALLOW")
+
+
+def test_destination_config_missing_dst():
+    """T006: DestinationConfig requires dst."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="bad", type="ALLOW")
+
+
+def test_destination_config_missing_type():
+    """T006: DestinationConfig requires type."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="bad", dst="example.com")
+
+
+def test_destination_config_invalid_type():
+    """T006: DestinationConfig rejects invalid type enum."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="bad", dst="example.com", type="BLOCK")
+
+
+def test_destination_config_invalid_name_special_chars():
+    """T006: DestinationConfig rejects name with special characters."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="invalid.name", dst="example.com", type="ALLOW")
+
+
+def test_destination_config_name_too_long():
+    """T006: DestinationConfig rejects name over 63 characters."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    with pytest.raises(ValidationError):
+        DestinationConfig(name="a" * 64, dst="example.com", type="ALLOW")
+
+
+def test_destination_config_dst_wildcard():
+    """T006: DestinationConfig accepts wildcard subdomain dst."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(name="wildcard", dst=".canonical.com", type="ALLOW")
+    assert dest.dst == ".canonical.com"
+
+
+def test_destination_config_dst_cidr():
+    """T006: DestinationConfig accepts CIDR dst."""
+    from terrasquid_render.models.base import DestinationConfig
+
+    dest = DestinationConfig(name="cidr", dst="10.0.0.0/24", type="ALLOW")
+    assert dest.dst == "10.0.0.0/24"
