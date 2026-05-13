@@ -1,10 +1,12 @@
 name: squid-as-a-service
+type: charm
 summary: Squid-as-a-Service - A Juju machine charm for managing Squid proxy via REST API
 description: |
   Terrasquid provides a Django REST Framework API for managing Squid proxy
   ACLs, sources, destinations, and port groups. Supports HA deployments
   with PostgreSQL and automatic configuration reload.
 base: ubuntu@24.04
+version: unversioned
 platforms:
   amd64:
 
@@ -61,6 +63,21 @@ requires:
   cos-agent:
     interface: cos_agent
     optional: true
+
+parts:
+  charm:
+    plugin: python
+    source: .
+    python-packages:
+      - ops
+    build-packages:
+      - python3-pip
+      - python3-venv
+      - build-essential
+      - libpq-dev
+      - apt-transport-https
+    stage-packages:
+      - python3.12-venv
 
 peers:
   squid-aaas-peers:
