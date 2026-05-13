@@ -32,14 +32,14 @@ def render_squid_config() -> str:
     return template.render(
         squid_port=settings.SQUID_PORT,
         version=config_version.version + 1,
-        source_acls=list(SourceACL.objects.all()),
-        source_groups=list(SourceGroup.objects.prefetch_related("sources").all()),
-        destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").all()),
-        destination_groups=list(DestinationGroup.objects.prefetch_related("destinations").all()),
-        port_groups=list(PortGroup.objects.all()),
+        source_acls=list(SourceACL.objects.order_by("service", "name")),
+        source_groups=list(SourceGroup.objects.prefetch_related("sources").order_by("service", "name")),
+        destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").order_by("service", "name")),
+        destination_groups=list(DestinationGroup.objects.prefetch_related("destinations").order_by("service", "name")),
+        port_groups=list(PortGroup.objects.order_by("service", "name")),
         acl_rules=list(
             ACLRule.objects.select_related("src", "src_group", "dst", "dst_group").order_by(
-                "priority"
+                "priority", "service", "name"
             )
         ),
     )
