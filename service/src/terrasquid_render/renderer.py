@@ -226,3 +226,67 @@ def render_services(resolved_services: list[dict], output_dir: Path) -> None:
             outputs = render_template(env, "proxy/outputs.tf.j2", {"service_name": service_name})
             write_rendered_output(service_dir / "variables.tf", variables)
             write_rendered_output(service_dir / "outputs.tf", outputs)
+
+        elif service_type == "network.proxy_ruleset":
+            content = render_network_proxy_ruleset(service)
+            service_dir = output_dir / service_name
+            write_rendered_output(service_dir / "main.tf", content)
+            # Also render variables.tf and outputs.tf
+            env = create_jinja2_env()
+            variables = render_template(env, "ruleset/variables.tf.j2", {"service_name": service_name})
+            outputs = render_template(env, "ruleset/outputs.tf.j2", {"service_name": service_name})
+            write_rendered_output(service_dir / "variables.tf", variables)
+            write_rendered_output(service_dir / "outputs.tf", outputs)
+
+
+def render_network_proxy_ruleset(model_dict: dict | BaseModel) -> str:
+    """Render a NetworkProxyRuleset to Terraform.
+
+    Args:
+        model_dict: NetworkProxyRuleset instance or dict.
+
+    Returns:
+        Rendered Terraform as string.
+    """
+    # Convert Pydantic model to dict if needed
+    if isinstance(model_dict, BaseModel):
+        model_dict = model_dict.model_dump()
+
+    env = create_jinja2_env()
+
+    # Build list of destinations and ACL rules
+    destinations = []
+    acl_rules = []
+
+    for dest in model_dict.get("destinations", []):
+        # Convert Pydantic model to dict if needed
+        if isinstance(dest, BaseModel):
+            dest = dest.model_dump()
+
+        dest_name = dest["name"]
+        resource_name = f"{model_dict['service_name']}-{dest_name}"
+
+        destinations.append({
+            "resource_name": resource_name,
+            "name": dest_name,
+            "dst": dest["dst"],
+            "ports": dest.get("ports", []),
+            "port_groups": dest.get("port_groups", []),
+        })
+
+        acl_rules.append({
+            "resource_name": resource_name,
+            "src": f"${{var.src_{model_dict['service_name']}}}",
+            "destination_resource_name": resource_name,
+            "type": dest["type"],
+            "ports": dest.get("ports", []),
+            "priority": dest.get("priority", 100),
+        })
+
+    context = {
+        "service_name": model_dict["service_name"],
+        "destinations": destinations,
+        "acl_rules": acl_rules,
+    }
+
+    return render_template(env, "ruleset/main.tf.j2", context)

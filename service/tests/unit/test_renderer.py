@@ -1,7 +1,7 @@
 import pytest
 from terrasquid_render.models.juju_model import ComputeJujuModel
 from terrasquid_render.models.proxy import NetworkProxy
-from terrasquid_render.renderer import render_compute_juju_model, render_network_proxy
+from terrasquid_render.renderer import render_compute_juju_model, render_network_proxy, render_network_proxy_ruleset
 
 
 def test_render_compute_juju_model_includes_lxd_project():
@@ -268,3 +268,103 @@ def test_render_network_proxy_includes_squid_config():
     )
     result = render_network_proxy(model, [])
     assert '"squid-port" = "3128"' in result
+
+
+# T049-T050: NetworkProxyRuleset Terraform rendering tests
+def test_render_network_proxy_ruleset_includes_destinations():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    assert 'resource "terrasquid_destination_configuration" "test-ruleset-allow-http"' in result
+    assert "example.com" in result
+
+
+def test_render_network_proxy_ruleset_includes_multiple_destinations():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]},
+            {"name": "allow-https", "dst": "api.github.com", "type": "CONNECT", "ports": [443]},
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    assert 'resource "terrasquid_destination_configuration" "test-ruleset-allow-http"' in result
+    assert 'resource "terrasquid_destination_configuration" "test-ruleset-allow-https"' in result
+
+
+def test_render_network_proxy_ruleset_creates_acl_rules():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {"name": "allow-http", "dst": "example.com", "type": "ALLOW", "ports": [80]}
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    assert 'resource "terrasquid_acl_rule" "test-ruleset-allow-http"' in result
+    assert 'type = "ALLOW"' in result
+
+
+# T050: Tunnel-type destination rendering
+def test_render_network_proxy_ruleset_tunnel_type_destination():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {"name": "tunnel-github", "dst": ".github.com", "type": "CONNECT", "ports": [443]}
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    assert 'resource "terrasquid_destination_configuration" "test-ruleset-tunnel-github"' in result
+    assert 'type = "CONNECT"' in result
+    assert "443" in result
+
+
+def test_render_network_proxy_ruleset_tunnel_type_uses_port_443():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {"name": "tunnel-api", "dst": "api.example.com", "type": "CONNECT"}
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    # Default port for CONNECT is 443
+    assert "443" in result
+
+
+def test_render_network_proxy_ruleset_includes_port_groups():
+    from terrasquid_render.models.ruleset import NetworkProxyRuleset
+
+    model = NetworkProxyRuleset(
+        service_name="test-ruleset",
+        service_type="network.proxy_ruleset",
+        destinations=[
+            {
+                "name": "allow-web",
+                "dst": "example.com",
+                "type": "ALLOW",
+                "ports": [80, 443],
+                "port_groups": ["web-ports"],
+            }
+        ],
+    )
+    result = render_network_proxy_ruleset(model)
+    assert "80" in result
+    assert "443" in result

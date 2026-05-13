@@ -153,16 +153,16 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 4 (Write First - Must Fail)
 
-- [ ] T049 [P] [US4] Write unit tests for `NetworkProxyRuleset` Terraform rendering in `service/tests/unit/test_renderer.py`
-- [ ] T050 [P] [US4] Write unit tests for tunnel-type destination rendering in `service/tests/unit/test_renderer.py`
-- [ ] T051 [P] [US4] Write integration tests for ruleset end-to-end YAML-to-Terraform flow in `service/tests/integration/test_ruleset.py`
+- [X] T049 [P] [US4] Write unit tests for `NetworkProxyRuleset` Terraform rendering in `service/tests/unit/test_renderer.py`
+- [X] T050 [P] [US4] Write unit tests for tunnel-type destination rendering in `service/tests/unit/test_renderer.py`
+- [X] T051 [P] [US4] Write integration tests for ruleset end-to-end YAML-to-Terraform flow in `service/tests/integration/test_ruleset.py`
 
 ### Implementation for User Story 4
 
-- [ ] T052 [US4] Extend renderer with `NetworkProxyRuleset` support in `service/src/terrasquid_render/renderer.py`
-- [ ] T053 [P] [US4] Create Jinja2 template for `ruleset/main.tf.j2` in `service/templates/ruleset/main.tf.j2`
-- [ ] T054 [P] [US4] Create Jinja2 template for `ruleset/variables.tf.j2` in `service/templates/ruleset/variables.tf.j2`
-- [ ] T055 [P] [US4] Create Jinja2 template for `ruleset/outputs.tf.j2` in `service/templates/ruleset/outputs.tf.j2`
+- [X] T052 [US4] Extend renderer with `NetworkProxyRuleset` support in `service/src/terrasquid_render/renderer.py`
+- [X] T053 [P] [US4] Create Jinja2 template for `ruleset/main.tf.j2` in `service/templates/ruleset/main.tf.j2`
+- [X] T054 [P] [US4] Create Jinja2 template for `ruleset/variables.tf.j2` in `service/templates/ruleset/variables.tf.j2`
+- [X] T055 [P] [US4] Create Jinja2 template for `ruleset/outputs.tf.j2` in `service/templates/ruleset/outputs.tf.j2`
 
 **Checkpoint**: `User Story 4` is fully functional - ruleset definitions render reusable access rules that can be referenced by compute primitives.
 

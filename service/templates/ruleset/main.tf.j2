@@ -1,0 +1,22 @@
+# Terrasquid Destination Configurations
+{% for dest in destinations %}
+resource "terrasquid_destination_configuration" "{{ dest.resource_name }}" {
+  name = "{{ dest.name }}"
+  destination = "{{ dest.dst }}"
+  {% if dest.ports %}ports = {{ dest.ports }}
+  {% endif %}
+  {% if dest.port_groups %}port_groups = {{ dest.port_groups }}
+  {% endif %}
+}
+{% endfor %}
+
+# Terrasquid ACL Rules
+{% for rule in acl_rules %}
+resource "terrasquid_acl_rule" "{{ rule.resource_name }}" {
+  name = "{{ rule.resource_name }}"
+  src = "{{ rule.src }}"
+  destination_configuration = terrasquid_destination_configuration.{{ rule.destination_resource_name }}.name
+  type = "{{ rule.type }}"
+  priority = {{ rule.priority }}
+}
+{% endfor %}
