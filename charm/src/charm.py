@@ -169,17 +169,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
             event.set_results({"keys": out.strip()})
 
     def _on_reconfigure_action(self, event: ops.ActionEvent) -> None:
-        rendered, err = self._run_manage_capture("render_squid_config", "--output", "-")
+        out, err = self._run_manage_capture("render_squid_config")
         if err:
-            event.fail(f"Failed to render config: {err}")
-            return
-        squid.write_squid_config(rendered)
-        ok, msg = squid.reload_squid()
-        if ok:
-            self._update_unit_status(applied_version=self._db_config_version())
-            event.set_results({"result": "Squid reloaded successfully."})
+            event.fail(f"Squid reconfigure failed: {err}")
         else:
-            event.fail(f"Squid reload failed: {msg}")
+            event.set_results({"result": out.strip() or "Squid config applied successfully."})
 
     def _on_createsuperuser_action(self, event: ops.ActionEvent) -> None:
         username = event.params["username"]
@@ -326,8 +320,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             EnvironmentFile={TERRASQUID_ENV_FILE}
             Environment=PYTHONPATH={DJANGO_APP_DIR}
             WorkingDirectory={DJANGO_APP_DIR}
-            ExecStart={VENV_BIN}/python {DJANGO_APP_DIR}/manage.py render_squid_config \\
-                --output {squid.SQUID_CONF_PATH}
+            ExecStart={VENV_BIN}/python {DJANGO_APP_DIR}/manage.py render_squid_config
             StandardOutput=journal
             StandardError=journal
         """)
