@@ -1,0 +1,1 @@
+# Squid as a Service - 26.04 AI Hackathon
