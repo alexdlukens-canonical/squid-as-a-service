@@ -16,6 +16,8 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseRequires,
 )
 
+import secrets
+
 import squid
 
 logger = logging.getLogger(__name__)
@@ -180,8 +182,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_createsuperuser_action(self, event: ops.ActionEvent) -> None:
         username = event.params["username"]
         email = event.params.get("email", "admin@example.com")
+        password = secrets.token_urlsafe(16)
         env = self._django_env()
-        env["DJANGO_SUPERUSER_PASSWORD"] = "changeme"
+        env["DJANGO_SUPERUSER_PASSWORD"] = password
         out, err = self._run_manage_capture(
             "createsuperuser",
             "--noinput",
@@ -194,9 +197,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if err and "already exists" not in err:
             event.fail(err)
         else:
-            event.set_results(
-                {"result": f"Superuser '{username}' created. Change the default password."}
-            )
+            event.set_results({"result": f"Superuser '{username}' created.", "password": password})
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -238,8 +239,6 @@ class SquidAsAServiceCharm(ops.CharmBase):
         key_file = TERRASQUID_RUN_DIR / "secret_key"
         if key_file.exists():
             return key_file.read_text().strip()
-        import secrets
-
         key = secrets.token_hex(50)
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
         key_file.write_text(key)

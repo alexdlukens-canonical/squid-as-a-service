@@ -66,6 +66,14 @@ actions:
         description: Email address for the superuser
         default: admin@example.com
     required: [username]
+    output:
+      properties:
+        result:
+          type: string
+          description: Status message
+        password:
+          type: string
+          description: Auto-generated password for the new superuser
 
 requires:
   database:
