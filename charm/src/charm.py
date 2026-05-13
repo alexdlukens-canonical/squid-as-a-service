@@ -4,7 +4,6 @@ import subprocess
 from pathlib import Path
 
 import ops
-from rest_framework_api_key.models import APIKey
 
 SQUID_BASE_CONFIG = """# Base Squid configuration managed by Terrasquid
 http_port {squid_port}
@@ -64,7 +63,8 @@ class TerrasquidCharm(ops.CharmBase):
         self.framework.observe(self.on.database_relation_changed, self._on_database_relation_changed)
         for action_name in ["create-key", "revoke-key", "rotate-key", "list-keys", "reconfigure"]:
             self.framework.observe(
-                self.on.actions.get(action_name), getattr(self, f"_on_{action_name.replace('-', '_')}", self._no_op)
+                getattr(self.on, f"{action_name.replace('-', '_')}_action"),
+                getattr(self, f"_on_{action_name.replace('-', '_')}", self._no_op),
             )
 
     def _on_install(self, event: ops.InstallEvent) -> None:
@@ -137,8 +137,19 @@ class TerrasquidCharm(ops.CharmBase):
         )
         Path("/etc/systemd/system/terrasquid-watcher.service").write_text(watcher_unit)
 
+    def _setup_django(self) -> None:
+        """Configure Django if not already configured."""
+        import django
+        from django.conf import settings
+        if not settings.configured:
+            os.environ.setdefault("DJANGO_SETTINGS_MODULE", "terrasquid.settings")
+            django.setup()
+
     def _on_create_key(self, event: ops.ActionEvent) -> None:
         """Create a new API key."""
+        self._setup_django()
+        from rest_framework_api_key.models import APIKey
+
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -155,6 +166,9 @@ class TerrasquidCharm(ops.CharmBase):
 
     def _on_revoke_key(self, event: ops.ActionEvent) -> None:
         """Revoke an API key."""
+        self._setup_django()
+        from rest_framework_api_key.models import APIKey
+
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -173,6 +187,9 @@ class TerrasquidCharm(ops.CharmBase):
 
     def _on_rotate_key(self, event: ops.ActionEvent) -> None:
         """Rotate an API key."""
+        self._setup_django()
+        from rest_framework_api_key.models import APIKey
+
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
@@ -196,6 +213,9 @@ class TerrasquidCharm(ops.CharmBase):
 
     def _on_list_keys(self, event: ops.ActionEvent) -> None:
         """List all API keys."""
+        self._setup_django()
+        from rest_framework_api_key.models import APIKey
+
         if not self.unit.is_leader():
             event.fail("Action must run on the leader unit.")
             return
