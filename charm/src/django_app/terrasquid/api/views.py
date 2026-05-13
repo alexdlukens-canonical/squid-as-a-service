@@ -127,7 +127,7 @@ class BaseResourceViewSet(AdvisoryLockMixin, ReferencedResourceMixin, ServiceFil
 
         from squid import render_config, validate_config
 
-        template_path = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
+        template_path = Path("/var/lib/terrasquid/templates/squid.conf.j2")
         if not template_path.exists():
             return True, ""
 
@@ -202,9 +202,10 @@ class BaseResourceViewSet(AdvisoryLockMixin, ReferencedResourceMixin, ServiceFil
 
     def _save_rendered_config(self):
         from pathlib import Path
+
         from squid import render_config
 
-        template_path = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
+        template_path = Path("/var/lib/terrasquid/templates/squid.conf.j2")
         if not template_path.exists():
             return
 

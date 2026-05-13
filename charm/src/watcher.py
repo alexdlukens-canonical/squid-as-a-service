@@ -13,7 +13,7 @@ DB_URL = os.environ.get("DATABASE_URL", "")
 UNIT_NAME = os.environ.get("JUJU_UNIT_NAME", "terrasquid/0")
 IS_LEADER = os.environ.get("JUJU_LEADER", "false").lower() == "true"
 LOCAL_STATE_PATH = Path("/var/lib/terrasquid/state.json")
-TEMPLATE_PATH = Path("/var/lib/terrasquid/terrasquid/templates/squid.conf.j2")
+TEMPLATE_PATH = Path("/var/lib/terrasquid/templates/squid.conf.j2")
 SQUID_CONF_PATH = Path("/etc/squid/conf.d/terrasquid.conf")
 STAGING_CONF_PATH = Path("/etc/squid/conf.d/terrasquid.conf.staging")
 POLL_INTERVAL = 5

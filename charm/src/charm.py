@@ -5,7 +5,6 @@ import urllib.parse
 from pathlib import Path
 
 import ops
-
 from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
 
 SQUID_BASE_CONFIG = """# Base Squid configuration managed by Terrasquid
@@ -30,7 +29,7 @@ Environment=DJANGO_SETTINGS_MODULE=terrasquid.settings
 Environment=DATABASE_URL={database_url}
 Environment=DJANGO_SECRET_KEY={secret_key}
 WorkingDirectory=/var/lib/terrasquid
-ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers} --pid /var/lib/terrasquid/gunicorn.pid
+ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
 Restart=on-failure
 
 [Install]
@@ -147,15 +146,16 @@ class TerrasquidCharm(ops.CharmBase):
     def _copy_workload_code(self, workdir: Path) -> None:
         """Copy workload source code from charm source to workdir."""
         charm_src = Path(__file__).resolve().parent
-        terrasquid_src = charm_src / "terrasquid"
+        django_app_src = charm_src / "django_app"
         watcher_src = charm_src / "watcher.py"
         squid_src = charm_src / "squid.py"
 
-        if terrasquid_src.exists():
-            subprocess.run(
-                ["cp", "-r", str(terrasquid_src), str(workdir / "terrasquid")],
-                check=False,
-            )
+        if django_app_src.exists():
+            for item in django_app_src.iterdir():
+                subprocess.run(
+                    ["cp", "-r", str(item), str(workdir / item.name)],
+                    check=False,
+                )
         if watcher_src.exists():
             subprocess.run(["cp", str(watcher_src), str(workdir / "watcher.py")], check=False)
         if squid_src.exists():
@@ -228,11 +228,9 @@ class TerrasquidCharm(ops.CharmBase):
             return
 
         endpoint = event.endpoints.split(",")[0]
-        db_url = "postgresql://{}:{}@{}/{}".format(
-            event.username,
-            urllib.parse.quote(event.password),
-            endpoint,
-            self.database.database,
+        db_url = (
+            f"postgresql://{event.username}:{urllib.parse.quote(event.password)}"
+            f"@{endpoint}/{self.database.database}"
         )
 
         os.environ["DATABASE_URL"] = db_url

@@ -48,6 +48,7 @@ exclude = ["**/__pycache__"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "terrasquid.settings"
+pythonpath = ["src", "src/terrasquid"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

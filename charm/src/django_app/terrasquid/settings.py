@@ -65,12 +65,13 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "terrasquid.wsgi.application"
 
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    "sqlite:///:memory:",
+)
 DATABASES = {
     "default": dj_database_url.parse(
-        os.environ.get(
-            "DATABASE_URL",
-            "postgres://terrasquid:terrasquid@localhost:5432/terrasquid",
-        ),
+        DATABASE_URL,
         conn_max_age=600,
     )
 }
