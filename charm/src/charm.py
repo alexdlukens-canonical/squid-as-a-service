@@ -29,6 +29,7 @@ Group=www-data
 Environment=DJANGO_SETTINGS_MODULE=terrasquid.settings
 Environment=DATABASE_URL={database_url}
 Environment=DJANGO_SECRET_KEY={secret_key}
+Environment=HOME=/var/lib/terrasquid
 WorkingDirectory=/var/lib/terrasquid
 ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
 Restart=on-failure
@@ -143,12 +144,14 @@ class TerrasquidCharm(ops.CharmBase):
         # Ensure the watcher can find squid.py on PYTHONPATH by creating a .pth file
         site_packages = list((venv_path / "lib").glob("python3.*/site-packages"))
         if site_packages:
-            (site_packages[0] / "terrasquid.pth").write_text(str(workdir) + "\n")
+            (site_packages[0] / "terrasquid.pth").write_text(
+                str(workdir) + "\n" + str(workdir / "terrasquid") + "\n"
+            )
 
         subprocess.run(
             ["chown", "-R", "www-data:www-data", str(workdir)],
             check=False,
-        )
+)
 
     def _copy_workload_code(self, workdir: Path) -> None:
         """Copy workload source code from charm source to workdir."""
