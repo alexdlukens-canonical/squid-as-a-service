@@ -79,7 +79,9 @@ func (r *SourceACLResource) Configure(_ context.Context, req resource.ConfigureR
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	r.client = c
+	if c != nil {
+		r.client = c
+	}
 }
 
 func (r *SourceACLResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

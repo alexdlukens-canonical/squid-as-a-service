@@ -70,7 +70,9 @@ func (d *DestinationGroupDataSource) Configure(_ context.Context, req datasource
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	d.client = c
+	if c != nil {
+		d.client = c
+	}
 }
 
 func (d *DestinationGroupDataSource) Read(ctx context.Context, req datasource.ReadRequest, resp *datasource.ReadResponse) {

@@ -108,7 +108,7 @@ func (p *TerrasquidProvider) DataSources(_ context.Context) []func() datasource.
 
 func configureClient(resp *datasource.ConfigureResponse, req datasource.ConfigureRequest) (*client.APIClient, error) {
 	if req.ProviderData == nil {
-		return nil, fmt.Errorf("provider data not configured")
+		return nil, nil
 	}
 	c, ok := req.ProviderData.(*client.APIClient)
 	if !ok {
@@ -119,7 +119,7 @@ func configureClient(resp *datasource.ConfigureResponse, req datasource.Configur
 
 func configureClientResource(resp *resource.ConfigureResponse, req resource.ConfigureRequest) (*client.APIClient, error) {
 	if req.ProviderData == nil {
-		return nil, fmt.Errorf("provider data not configured")
+		return nil, nil
 	}
 	c, ok := req.ProviderData.(*client.APIClient)
 	if !ok {

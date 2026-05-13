@@ -30,8 +30,8 @@ func (v xorFieldValidator) ValidateResource(ctx context.Context, req resource.Va
 		return
 	}
 
-	aSet := !aVal.IsNull() && !aVal.IsUnknown()
-	bSet := !bVal.IsNull() && !bVal.IsUnknown()
+	aSet := !aVal.IsNull()
+	bSet := !bVal.IsNull()
 
 	if aSet && bSet {
 		resp.Diagnostics.AddError(

@@ -95,7 +95,9 @@ func (r *DestinationConfigResource) Configure(_ context.Context, req resource.Co
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	r.client = c
+	if c != nil {
+		r.client = c
+	}
 }
 
 func (r *DestinationConfigResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
