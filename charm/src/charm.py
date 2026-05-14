@@ -31,6 +31,7 @@ TERRASQUID_STATUS_FILE = Path("/var/lib/terrasquid/status.json")
 TERRASQUID_RUN_DIR = Path("/var/lib/terrasquid")
 
 GUNICORN_SERVICE = "terrasquid-api"
+GUNICORN_CONF_FILE = Path("/etc/terrasquid/gunicorn.conf.py")
 SQUID_WATCHER_SERVICE = "terrasquid-watcher"
 SQUID_WATCHER_TIMER = "terrasquid-watcher.timer"
 
@@ -76,6 +77,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_config_changed(self, _event: ops.ConfigChangedEvent) -> None:
         if not self._database_url():
             return
+        self._write_gunicorn_config()
         self._write_env_file()
         self._reload_gunicorn()
         if self._gunicorn_running():
@@ -282,10 +284,27 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return "", result.stderr.strip() or result.stdout.strip()
         return result.stdout, ""
 
-    def _write_systemd_units(self) -> None:
-        """Write systemd unit files for Gunicorn and the config watcher."""
+    def _write_gunicorn_config(self) -> None:
+        """Write /etc/terrasquid/gunicorn.conf.py from current charm config."""
         api_port = self.config.get("api-port", 8080)
         workers = self.config.get("gunicorn-workers", 4)
+        content = textwrap.dedent(f"""\
+            bind = "0.0.0.0:{api_port}"
+            workers = {workers}
+            timeout = 120
+            worker_class = "sync"
+            accesslog = "/var/log/gunicorn.log"
+            errorlog = "/var/log/gunicorn.log"
+            access_log_format = (
+                '%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs'
+            )
+        """)
+        GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GUNICORN_CONF_FILE.write_text(content)
+
+    def _write_systemd_units(self) -> None:
+        """Write systemd unit files for Gunicorn and the config watcher."""
+        self._write_gunicorn_config()
         gunicorn_unit = textwrap.dedent(f"""\
             [Unit]
             Description=Terrasquid REST API (Gunicorn)
@@ -298,14 +317,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
             Environment=PYTHONPATH={DJANGO_APP_DIR}
             WorkingDirectory={DJANGO_APP_DIR}
             ExecStart={VENV_BIN}/python -m gunicorn \\
-                --workers {workers} \\
-                --bind 0.0.0.0:{api_port} \\
-                --timeout 120 \\
+                --config {GUNICORN_CONF_FILE} \\
                 terrasquid.wsgi:application
             Restart=on-failure
             RestartSec=5s
-            StandardOutput=journal
-            StandardError=journal
+            StandardOutput=append:/var/log/gunicorn.log
+            StandardError=append:/var/log/gunicorn.log
 
             [Install]
             WantedBy=multi-user.target
