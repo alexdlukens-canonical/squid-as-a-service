@@ -87,7 +87,7 @@ class TestDatabaseRelation:
     @patch("charm.SquidAsAServiceCharm._run_manage")
     @patch("charm.SquidAsAServiceCharm._write_env_file")
     def test_database_created_runs_migrate(self, mock_env, mock_manage, mock_start, ctx, base_state):
-        """database_created event should invoke migrate."""
+        """database_created event should invoke migrate and collectstatic."""
         db_rel = ops.testing.Relation(
             "database",
             remote_app_name="postgresql",
@@ -101,7 +101,11 @@ class TestDatabaseRelation:
         state = ops.testing.State(config=base_state.config, relations={db_rel})
         with ctx(ctx.on.relation_changed(db_rel), state) as mgr:
             mgr.run()
-        mock_manage.assert_called_once_with("migrate", "--noinput")
+        assert mock_manage.call_count == 2
+        assert mock_manage.call_args_list == [
+            (('migrate', '--noinput'),),
+            (('collectstatic', '--noinput'),),
+        ]
 
     def test_database_relation_broken_stops_gunicorn(self, no_subprocess, ctx, base_state):
         """database_relation_broken should stop the Gunicorn service."""
@@ -147,19 +151,12 @@ class TestActions:
             with ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr:
                 mgr.run()
 
-    @patch("squid.reload_squid", return_value=(True, ""))
-    @patch("squid.write_squid_config")
-    @patch("charm.SquidAsAServiceCharm._update_unit_status")
-    @patch("charm.SquidAsAServiceCharm._db_config_version", return_value=3)
     @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("http_port 3128\n", ""))
-    def test_reconfigure_action_reloads_squid(
-        self, mock_manage, mock_version, mock_update_status, mock_write, mock_reload, ctx, base_state
-    ):
-        """Reconfigure action should write config and reload Squid."""
+    def test_reconfigure_action_runs_render_manage_command(self, mock_manage, ctx, base_state):
+        """Reconfigure action should run the render_squid_config management command."""
         with ctx(ctx.on.action("reconfigure"), base_state) as mgr:
             mgr.run()
-        mock_write.assert_called_once()
-        mock_reload.assert_called_once()
+        mock_manage.assert_called_once_with("render_squid_config")
 
 
 class TestEnvFile:
@@ -171,12 +168,15 @@ class TestEnvFile:
         """The env file should contain DATABASE_URL."""
         import charm as charm_module
 
-        orig = charm_module.TERRASQUID_ENV_FILE
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
         charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
         try:
             with ctx(ctx.on.config_changed(), base_state) as mgr:
                 mgr.run()
             content = (tmp_path / "terrasquid.env").read_text()
             assert "DATABASE_URL=postgresql://u:p@db/terrasquid" in content
         finally:
-            charm_module.TERRASQUID_ENV_FILE = orig
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn
