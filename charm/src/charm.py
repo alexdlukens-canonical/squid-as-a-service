@@ -15,6 +15,14 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
+from charmlibs.interfaces.tls_certificates import (
+    CertificateAvailableEvent,
+    CertificateExpiringEvent,
+    CertificateInvalidatedEvent,
+    TLSCertificatesRequiresV4,
+    generate_csr,
+    generate_private_key,
+)
 
 import secrets
 
@@ -29,6 +37,11 @@ DJANGO_APP_DIR = CHARM_DIR / "src" / "django_app"
 TERRASQUID_ENV_FILE = Path("/etc/terrasquid/terrasquid.env")
 TERRASQUID_STATUS_FILE = Path("/var/lib/terrasquid/status.json")
 TERRASQUID_RUN_DIR = Path("/var/lib/terrasquid")
+TERRASQUID_CERTS_DIR = Path("/etc/terrasquid/certs")
+
+CERT_FILE = TERRASQUID_CERTS_DIR / "terrasquid.crt"
+KEY_FILE = TERRASQUID_CERTS_DIR / "terrasquid.key"
+CA_FILE = TERRASQUID_CERTS_DIR / "ca.crt"
 
 GUNICORN_SERVICE = "terrasquid-api"
 GUNICORN_CONF_FILE = Path("/etc/terrasquid/gunicorn.conf.py")
@@ -43,6 +56,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         super().__init__(*args)
 
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
+        self.certificates = TLSCertificatesRequiresV4(self, "certificates")
 
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
@@ -57,6 +71,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
             self.on.database_relation_broken, self._on_database_relation_broken
         )
 
+        self.framework.observe(self.on.certificates_relation_joined, self._on_certificates_relation_joined)
+        self.framework.observe(self.certificates.on.certificate_available, self._on_certificate_available)
+        self.framework.observe(self.certificates.on.certificate_expiring, self._on_certificate_expiring)
+        self.framework.observe(self.certificates.on.certificate_invalidated, self._on_certificate_invalidated)
+
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
         self.framework.observe(self.on.rotate_key_action, self._on_rotate_key_action)
@@ -70,6 +89,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.unit.status = ops.MaintenanceStatus("Installing Squid")
         squid.install_squid()
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
+        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
@@ -77,6 +97,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_config_changed(self, _event: ops.ConfigChangedEvent) -> None:
         if not self._database_url():
             return
+        self._request_certificate()
         self._write_gunicorn_config()
         self._write_env_file()
         self._reload_gunicorn()
@@ -113,7 +134,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
         api_status = "up"
         squid_status = "up" if squid.squid_service_running() else "down"
         config_version = self._read_applied_config_version()
-        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | config v{config_version}"))
+        tls_status = "enabled" if CERT_FILE.exists() else "disabled"
+        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"))
 
     # ── Database relation ─────────────────────────────────────────────────────
 
@@ -131,6 +153,63 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_database_relation_broken(self, _event: ops.RelationBrokenEvent) -> None:
         self.unit.status = ops.WaitingStatus("Database relation removed")
         subprocess.run(["systemctl", "stop", GUNICORN_SERVICE], capture_output=True)
+
+    # ── Certificates relation ─────────────────────────────────────────────────
+
+    def _on_certificates_relation_joined(self, event: ops.RelationJoinedEvent) -> None:
+        """Generate a CSR and request a certificate."""
+        self._request_certificate()
+
+    def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:
+        """Handle certificate availability."""
+        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
+        CERT_FILE.write_text(event.certificate)
+        CA_FILE.write_text(event.ca)
+        # Key must already exist as we generated it for CSR
+        self._write_gunicorn_config()
+        self._reload_gunicorn()
+        logger.info("Certificate available and Gunicorn reloaded")
+
+    def _on_certificate_expiring(self, event: CertificateExpiringEvent) -> None:
+        """Handle certificate expiration by requesting a new one."""
+        self._request_certificate()
+
+    def _on_certificate_invalidated(self, event: CertificateInvalidatedEvent) -> None:
+        """Handle certificate invalidation."""
+        for f in (CERT_FILE, CA_FILE):
+            if f.exists():
+                f.unlink()
+        self._write_gunicorn_config()
+        self._reload_gunicorn()
+
+    def _request_certificate(self) -> None:
+        """Generate a CSR and request a certificate."""
+        if not self.model.relations.get("certificates"):
+            return
+
+        private_key = self._get_or_generate_private_key()
+        # use model name and unit name as default subject
+        common_name = (
+            self.config.get("external-hostname")
+            or f"{self.unit.name.replace('/', '-')}.{self.model.name}.juju"
+        )
+        csr = generate_csr(
+            private_key=private_key,
+            common_name=common_name,
+            sans_dns=[common_name],
+        )
+        self.certificates.request_certificate_creation(certificate_signing_request=csr)
+
+    def _get_or_generate_private_key(self) -> bytes:
+        """Return the existing private key or generate a new one."""
+        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
+        if KEY_FILE.exists():
+            return KEY_FILE.read_bytes()
+        
+        key = generate_private_key()
+        KEY_FILE.write_bytes(key)
+        os.chmod(KEY_FILE, 0o600)
+        return key
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
@@ -294,6 +373,16 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """Write /etc/terrasquid/gunicorn.conf.py from current charm config."""
         api_port = self.config.get("api-port", 8080)
         workers = self.config.get("gunicorn-workers", 4)
+
+        ssl_config = ""
+        if CERT_FILE.exists() and KEY_FILE.exists():
+            ssl_config = textwrap.dedent(f"""\
+                certfile = "{CERT_FILE}"
+                keyfile = "{KEY_FILE}"
+            """)
+            if CA_FILE.exists():
+                ssl_config += f'ca_certs = "{CA_FILE}"\n'
+
         content = textwrap.dedent(f"""\
             bind = "0.0.0.0:{api_port}"
             workers = {workers}
@@ -304,6 +393,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             access_log_format = (
                 '%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs'
             )
+            {ssl_config}
         """)
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)

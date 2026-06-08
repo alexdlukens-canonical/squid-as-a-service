@@ -20,6 +20,7 @@ dependencies = [
     "Jinja2",
     "whitenoise",
     "dj-database-url",
+    "charmlibs-interfaces-tls-certificates",
 ]
 
 [project.optional-dependencies]
@@ -55,7 +56,7 @@ exclude = ["**/__pycache__"]
 
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "terrasquid.settings"
-pythonpath = ["src/django_app", "src"]
+pythonpath = ["src/django_app", "src", "lib"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]

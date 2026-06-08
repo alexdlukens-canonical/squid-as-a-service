@@ -40,6 +40,11 @@ config:
       type: boolean
       default: true
       description: When true, append "http_access deny all" as the final rule (default deny). Set to false to omit it.
+    external-hostname:
+      type: string
+      default: ""
+      description: |
+        The hostname to request for the TLS certificate
 
 actions:
   create-key:
@@ -94,6 +99,8 @@ requires:
   cos-agent:
     interface: cos_agent
     optional: true
+  certificates:
+    interface: tls-certificates
 
 charm-libs:
   - lib: data_platform_libs.data_interfaces
