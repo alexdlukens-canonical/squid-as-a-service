@@ -21,6 +21,7 @@ dependencies = [
     "whitenoise",
     "dj-database-url",
     "charmlibs-interfaces-tls-certificates",
+    "charmlibs-interfaces-certificate_transfer",
 ]
 
 [project.optional-dependencies]

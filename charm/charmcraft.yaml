@@ -101,6 +101,9 @@ requires:
     optional: true
   certificates:
     interface: tls-certificates
+  certificate-transfer:
+    interface: certificate_transfer
+    optional: true
 
 charm-libs:
   - lib: data_platform_libs.data_interfaces

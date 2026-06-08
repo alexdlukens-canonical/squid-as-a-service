@@ -15,6 +15,11 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
+from charmlibs.interfaces.certificate_transfer import (
+    CertificateTransferRequires,
+    CertificatesAvailableEvent as CertificatesTransferAvailableEvent,
+    CertificatesRemovedEvent,
+)
 from charmlibs.interfaces.tls_certificates import (
     CertificateAvailableEvent,
     CertificateExpiringEvent,
@@ -42,6 +47,8 @@ TERRASQUID_CERTS_DIR = Path("/etc/terrasquid/certs")
 CERT_FILE = TERRASQUID_CERTS_DIR / "terrasquid.crt"
 KEY_FILE = TERRASQUID_CERTS_DIR / "terrasquid.key"
 CA_FILE = TERRASQUID_CERTS_DIR / "ca.crt"
+TRANSFER_CA_FILE = TERRASQUID_CERTS_DIR / "transfer-ca.crt"
+SYSTEM_TRANSFER_CA_FILE = Path("/usr/local/share/ca-certificates/terrasquid-transfer-ca.crt")
 
 GUNICORN_SERVICE = "terrasquid-api"
 GUNICORN_CONF_FILE = Path("/etc/terrasquid/gunicorn.conf.py")
@@ -57,6 +64,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
         self.certificates = TLSCertificatesRequiresV4(self, "certificates")
+        self.certificate_transfer = CertificateTransferRequires(self, "certificate-transfer")
 
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
@@ -75,6 +83,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.framework.observe(self.certificates.on.certificate_available, self._on_certificate_available)
         self.framework.observe(self.certificates.on.certificate_expiring, self._on_certificate_expiring)
         self.framework.observe(self.certificates.on.certificate_invalidated, self._on_certificate_invalidated)
+
+        self.framework.observe(self.certificate_transfer.on.certificate_set_updated, self._on_certificate_set_updated)
+        self.framework.observe(self.certificate_transfer.on.certificates_removed, self._on_certificates_removed)
 
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
@@ -180,6 +191,27 @@ class SquidAsAServiceCharm(ops.CharmBase):
             if f.exists():
                 f.unlink()
         self._write_gunicorn_config()
+        self._reload_gunicorn()
+
+    def _on_certificate_set_updated(self, event: CertificatesTransferAvailableEvent) -> None:
+        """Install transferred CA certificates into the system trust store."""
+        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
+        TRANSFER_CA_FILE.write_text("\n".join(event.certificates))
+        self._update_transfer_ca_trust()
+
+    def _on_certificates_removed(self, event: CertificatesRemovedEvent) -> None:
+        """Remove transferred CA certificates from the system trust store."""
+        if TRANSFER_CA_FILE.exists():
+            TRANSFER_CA_FILE.unlink()
+        self._update_transfer_ca_trust()
+
+    def _update_transfer_ca_trust(self) -> None:
+        """Sync TRANSFER_CA_FILE to the system CA store and rebuild the trust bundle."""
+        if TRANSFER_CA_FILE.exists():
+            SYSTEM_TRANSFER_CA_FILE.write_text(TRANSFER_CA_FILE.read_text())
+        elif SYSTEM_TRANSFER_CA_FILE.exists():
+            SYSTEM_TRANSFER_CA_FILE.unlink()
+        subprocess.run(["update-ca-certificates"], check=True)
         self._reload_gunicorn()
 
     def _request_certificate(self) -> None:
