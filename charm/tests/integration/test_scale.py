@@ -157,6 +157,9 @@ def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_char
 
         if _SNAPSHOT_PATH.exists():
             snapshot = _SNAPSHOT_PATH.read_text()
+            if file_on_disk != snapshot:
+                new_path = _SNAPSHOT_PATH.with_suffix(_SNAPSHOT_PATH.suffix + ".new")
+                new_path.write_text(file_on_disk)
             assert file_on_disk == snapshot, (
                 f"The Squid config differs from the previous run's snapshot at {_SNAPSHOT_PATH}."
             )
@@ -347,6 +350,9 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
         snapshot_path = CHARM_DIR / "tests" / "integration" / "squid_all_resources_snapshot.conf"
         if snapshot_path.exists():
             snapshot = snapshot_path.read_text()
+            if file_on_disk != snapshot:
+                new_path = snapshot_path.with_suffix(snapshot_path.suffix + ".new")
+                new_path.write_text(file_on_disk)
             assert file_on_disk == snapshot, (
                 f"The Squid config differs from the previous run's snapshot at {snapshot_path}."
             )
