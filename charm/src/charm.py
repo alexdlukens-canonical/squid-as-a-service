@@ -193,11 +193,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return
 
         private_key = self._get_or_generate_private_key()
-        # use model name and unit name as default subject
-        common_name = (
-            self.config.get("external-hostname")
-            or f"{self.unit.name.replace('/', '-')}.{self.model.name}.juju"
-        )
+        common_name = self.config.get("external-hostname")
+        if not common_name:
+            logger.warning("external-hostname config is required to request a certificate")
+            return
         csr = generate_csr(
             private_key=private_key,
             common_name=common_name,
