@@ -17,12 +17,12 @@ from charms.data_platform_libs.v0.data_interfaces import (
 )
 from charmlibs.interfaces.tls_certificates import (
     CertificateAvailableEvent,
-    CertificateExpiringEvent,
-    CertificateInvalidatedEvent,
+    CertificateDeniedEvent,
     TLSCertificatesRequiresV4,
     generate_csr,
     generate_private_key,
 )
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
 import secrets
 
@@ -57,6 +57,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
         self.certificates = TLSCertificatesRequiresV4(self, "certificates")
+        self.django_ingress = IngressPerAppRequirer(self, relation_name="django-ingress")
+        self.squid_ingress = IngressPerAppRequirer(self, relation_name="squid-ingress")
 
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
@@ -73,8 +75,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.framework.observe(self.on.certificates_relation_joined, self._on_certificates_relation_joined)
         self.framework.observe(self.certificates.on.certificate_available, self._on_certificate_available)
-        self.framework.observe(self.certificates.on.certificate_expiring, self._on_certificate_expiring)
-        self.framework.observe(self.certificates.on.certificate_invalidated, self._on_certificate_invalidated)
+        self.framework.observe(self.certificates.on.certificate_denied, self._on_certificate_denied)
+
+        self.framework.observe(self.on.django_ingress_relation_joined, self._on_django_ingress_relation_joined)
+        self.framework.observe(self.on.squid_ingress_relation_joined, self._on_squid_ingress_relation_joined)
 
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
@@ -103,6 +107,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._reload_gunicorn()
         if self._gunicorn_running():
             self._open_ports()
+        self._publish_django_ingress_requirements()
+        self._publish_squid_ingress_requirements()
 
     def _on_start(self, _event: ops.StartEvent) -> None:
         if not self._database_url():
@@ -140,6 +146,14 @@ class SquidAsAServiceCharm(ops.CharmBase):
         tls_status = "enabled" if CERT_FILE.exists() else "disabled"
         event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"))
 
+    # ── Ingress relations ─────────────────────────────────────────────────────
+
+    def _on_django_ingress_relation_joined(self, _event: ops.RelationJoinedEvent) -> None:
+        self._publish_django_ingress_requirements()
+
+    def _on_squid_ingress_relation_joined(self, _event: ops.RelationJoinedEvent) -> None:
+        self._publish_squid_ingress_requirements()
+
     # ── Database relation ─────────────────────────────────────────────────────
 
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
@@ -171,19 +185,18 @@ class SquidAsAServiceCharm(ops.CharmBase):
         # Key must already exist as we generated it for CSR
         self._write_gunicorn_config()
         self._reload_gunicorn()
+        self._publish_django_ingress_requirements()
         logger.info("Certificate available and Gunicorn reloaded")
 
-    def _on_certificate_expiring(self, event: CertificateExpiringEvent) -> None:
-        """Handle certificate expiration by requesting a new one."""
-        self._request_certificate()
-
-    def _on_certificate_invalidated(self, event: CertificateInvalidatedEvent) -> None:
-        """Handle certificate invalidation."""
+    def _on_certificate_denied(self, event: CertificateDeniedEvent) -> None:
+        """Handle certificate denial by removing stale cert files and reconfiguring."""
+        logger.warning("Certificate denied: %s", event.error)
         for f in (CERT_FILE, CA_FILE):
             if f.exists():
                 f.unlink()
         self._write_gunicorn_config()
         self._reload_gunicorn()
+        self._publish_django_ingress_requirements()
 
     def _request_certificate(self) -> None:
         """Generate a CSR and request a certificate."""
@@ -477,6 +490,19 @@ class SquidAsAServiceCharm(ops.CharmBase):
             ["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True
         )
         return result.returncode == 0
+
+    def _publish_django_ingress_requirements(self) -> None:
+        """Publish ingress requirements for the Django API, leader unit only."""
+        if not self.unit.is_leader():
+            return
+        api_port = int(self.config.get("api-port", 8080))
+        scheme = "https" if CERT_FILE.exists() else "http"
+        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme)
+
+    def _publish_squid_ingress_requirements(self) -> None:
+        """Publish ingress requirements for Squid, all units."""
+        squid_port = int(self.config.get("squid-port", 3128))
+        self.squid_ingress.provide_ingress_requirements(port=squid_port)
 
     def _open_ports(self) -> None:
         squid_port = int(self.config.get("squid-port", 3128))

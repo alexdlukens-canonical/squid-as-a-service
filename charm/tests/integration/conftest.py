@@ -64,6 +64,24 @@ def deployed_charms(juju):
     return {"saas_app": "terrasquid", "pg_app": "postgresql"}
 
 
+@pytest.fixture(scope="module")
+def deployed_charms_with_tls(juju, deployed_charms):
+    """Extend the base deployment with self-signed-certificates integrated to terrasquid.
+
+    Deploys the self-signed-certificates charm, integrates it on the certificates
+    relation, and waits for all applications to return to active/idle.
+    Returns the same dict as deployed_charms plus a 'tls_app' key.
+    """
+    juju.deploy(
+        "self-signed-certificates",
+        channel="latest/stable",
+        base="ubuntu@24.04",
+    )
+    juju.integrate("terrasquid:certificates", "self-signed-certificates:certificates")
+    juju.wait(jubilant.all_active, timeout=300)
+    return {**deployed_charms, "tls_app": "self-signed-certificates"}
+
+
 def _find_charm_file() -> str:
     """Locate the built .charm file in the charm directory."""
     charm_files = list(CHARM_DIR.glob("*.charm"))

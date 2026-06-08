@@ -101,10 +101,20 @@ requires:
     optional: true
   certificates:
     interface: tls-certificates
+  django-ingress:
+    interface: ingress
+    limit: 1
+    optional: true
+  squid-ingress:
+    interface: ingress
+    limit: 1
+    optional: true
 
 charm-libs:
   - lib: data_platform_libs.data_interfaces
     version: "0"
+  - lib: traefik_k8s.ingress
+    version: "2"
 
 parts:
   charm:
