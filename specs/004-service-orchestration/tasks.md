@@ -99,24 +99,24 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 2 (Write First - Must Fail)
 
-- [ ] T027 [P] [US2] Write unit tests for `ComputeJujuModel` Terraform rendering (all resources) in `service/tests/unit/test_renderer.py`
-- [ ] T028 [P] [US2] Write unit tests for inline access rule Terraform rendering in `service/tests/unit/test_renderer.py`
-- [ ] T029 [P] [US2] Write unit tests for cross-service ruleset reference resolution in `service/tests/unit/test_resolver.py`
-- [ ] T030 [P] [US2] Write snapshot tests for rendering determinism in `service/tests/unit/test_renderer_snapshots.py`
-- [ ] T031 [P] [US2] Write integration tests for compute primitive end-to-end YAML-to-Terraform flow in `service/tests/integration/test_juju_model.py`
+- [X] T027 [P] [US2] Write unit tests for `ComputeJujuModel` Terraform rendering (all resources) in `service/tests/unit/test_renderer.py`
+- [X] T028 [P] [US2] Write unit tests for inline access rule Terraform rendering in `service/tests/unit/test_renderer.py`
+- [X] T029 [P] [US2] Write unit tests for cross-service ruleset reference resolution in `service/tests/unit/test_resolver.py`
+- [X] T030 [P] [US2] Write snapshot tests for rendering determinism in `service/tests/unit/test_renderer_snapshots.py`
+- [X] T031 [P] [US2] Write integration tests for compute primitive end-to-end YAML-to-Terraform flow in `service/tests/integration/test_juju_model.py`
 
 ### Implementation for User Story 2
 
-- [ ] T032 [US2] Implement cross-service reference resolver (two-pass, VR-002) in `service/src/terrasquid_render/resolver.py`
+- [X] T032 [US2] Implement cross-service reference resolver (two-pass, VR-002) in `service/src/terrasquid_render/resolver.py`
 - [ ] T033 [US2] Implement `ComputeJujuModel` rendering logic in `service/src/terrasquid_render/renderer.py`
-- [ ] T034 [P] [US2] Create Jinja2 template for `juju_model/main.tf.j2` in `service/templates/juju_model/main.tf.j2`
-- [ ] T035 [P] [US2] Create Jinja2 template for `juju_model/variables.tf.j2` in `service/templates/juju_model/variables.tf.j2`
-- [ ] T036 [P] [US2] Create Jinja2 template for `juju_model/outputs.tf.j2` in `service/templates/juju_model/outputs.tf.j2`
-- [ ] T037 [P] [US2] Create shared Jinja2 helpers (`_helpers.j2`) for resource naming in `service/templates/_helpers.j2`
-- [ ] T038 [P] [US2] Create shared default rules template fragment in `service/templates/shared/_default_rules.tf.j2`
-- [ ] T039 [US2] Implement Typer CLI entry point (`terrasquid-render`) in `service/src/terrasquid_render/cli.py`
-- [ ] T040 [US2] Handle edge case: missing ruleset reference produces clear error in `service/src/terrasquid_render/resolver.py`
-- [ ] T041 [US2] Support `use_proxy_provider=true/false` template branching (FR-014) in `service/src/terrasquid_render/renderer.py`
+- [X] T034 [P] [US2] Create Jinja2 template for `juju_model/main.tf.j2` in `service/templates/juju_model/main.tf.j2`
+- [X] T035 [P] [US2] Create Jinja2 template for `juju_model/variables.tf.j2` in `service/templates/juju_model/variables.tf.j2`
+- [X] T036 [P] [US2] Create Jinja2 template for `juju_model/outputs.tf.j2` in `service/templates/juju_model/outputs.tf.j2`
+- [X] T037 [P] [US2] Create shared Jinja2 helpers (`_helpers.j2`) for resource naming in `service/templates/_helpers.j2`
+- [X] T038 [P] [US2] Create shared default rules template fragment in `service/templates/shared/_default_rules.tf.j2`
+- [X] T039 [US2] Implement Typer CLI entry point (`terrasquid-render`) in `service/src/terrasquid_render/cli.py`
+- [X] T040 [US2] Handle edge case: missing ruleset reference produces clear error in `service/src/terrasquid_render/resolver.py`
+- [X] T041 [US2] Support `use_proxy_provider=true/false` template branching (FR-014) in `service/src/terrasquid_render/renderer.py`
 
 **Checkpoint**: `User Story 2` is fully functional - compute primitives render to deterministic Terraform with inline and referenced access rules.
 
@@ -130,16 +130,16 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 3 (Write First - Must Fail)
 
-- [ ] T042 [P] [US3] Write unit tests for `NetworkProxy` Terraform rendering in `service/tests/unit/test_renderer.py`
-- [ ] T043 [P] [US3] Write unit tests for proxy charm deployment resources in `service/tests/unit/test_renderer.py`
-- [ ] T044 [P] [US3] Write integration tests for network proxy end-to-end YAML-to-Terraform flow in `service/tests/integration/test_proxy.py`
+- [X] T042 [P] [US3] Write unit tests for `NetworkProxy` Terraform rendering in `service/tests/unit/test_renderer.py`
+- [X] T043 [P] [US3] Write unit tests for proxy charm deployment resources in `service/tests/unit/test_renderer.py`
+- [X] T044 [P] [US3] Write integration tests for network proxy end-to-end YAML-to-Terraform flow in `service/tests/integration/test_proxy.py`
 
 ### Implementation for User Story 3
 
-- [ ] T045 [US3] Extend renderer with `NetworkProxy` support in `service/src/terrasquid_render/renderer.py`
-- [ ] T046 [P] [US3] Create Jinja2 template for `proxy/main.tf.j2` in `service/templates/proxy/main.tf.j2`
-- [ ] T047 [P] [US3] Create Jinja2 template for `proxy/variables.tf.j2` in `service/templates/proxy/variables.tf.j2`
-- [ ] T048 [P] [US3] Create Jinja2 template for `proxy/outputs.tf.j2` in `service/templates/proxy/outputs.tf.j2`
+- [X] T045 [US3] Extend renderer with `NetworkProxy` support in `service/src/terrasquid_render/renderer.py`
+- [X] T046 [P] [US3] Create Jinja2 template for `proxy/main.tf.j2` in `service/templates/proxy/main.tf.j2`
+- [X] T047 [P] [US3] Create Jinja2 template for `proxy/variables.tf.j2` in `service/templates/proxy/variables.tf.j2`
+- [X] T048 [P] [US3] Create Jinja2 template for `proxy/outputs.tf.j2` in `service/templates/proxy/outputs.tf.j2`
 
 **Checkpoint**: `User Story 3` is fully functional - network proxy definitions render complete infrastructure including Squid charm deployment.
 
@@ -153,16 +153,16 @@ description: "Task list for Service Orchestration (terrasquid-render CLI)"
 
 ### Tests for User Story 4 (Write First - Must Fail)
 
-- [ ] T049 [P] [US4] Write unit tests for `NetworkProxyRuleset` Terraform rendering in `service/tests/unit/test_renderer.py`
-- [ ] T050 [P] [US4] Write unit tests for tunnel-type destination rendering in `service/tests/unit/test_renderer.py`
-- [ ] T051 [P] [US4] Write integration tests for ruleset end-to-end YAML-to-Terraform flow in `service/tests/integration/test_ruleset.py`
+- [X] T049 [P] [US4] Write unit tests for `NetworkProxyRuleset` Terraform rendering in `service/tests/unit/test_renderer.py`
+- [X] T050 [P] [US4] Write unit tests for tunnel-type destination rendering in `service/tests/unit/test_renderer.py`
+- [X] T051 [P] [US4] Write integration tests for ruleset end-to-end YAML-to-Terraform flow in `service/tests/integration/test_ruleset.py`
 
 ### Implementation for User Story 4
 
-- [ ] T052 [US4] Extend renderer with `NetworkProxyRuleset` support in `service/src/terrasquid_render/renderer.py`
-- [ ] T053 [P] [US4] Create Jinja2 template for `ruleset/main.tf.j2` in `service/templates/ruleset/main.tf.j2`
-- [ ] T054 [P] [US4] Create Jinja2 template for `ruleset/variables.tf.j2` in `service/templates/ruleset/variables.tf.j2`
-- [ ] T055 [P] [US4] Create Jinja2 template for `ruleset/outputs.tf.j2` in `service/templates/ruleset/outputs.tf.j2`
+- [X] T052 [US4] Extend renderer with `NetworkProxyRuleset` support in `service/src/terrasquid_render/renderer.py`
+- [X] T053 [P] [US4] Create Jinja2 template for `ruleset/main.tf.j2` in `service/templates/ruleset/main.tf.j2`
+- [X] T054 [P] [US4] Create Jinja2 template for `ruleset/variables.tf.j2` in `service/templates/ruleset/variables.tf.j2`
+- [X] T055 [P] [US4] Create Jinja2 template for `ruleset/outputs.tf.j2` in `service/templates/ruleset/outputs.tf.j2`
 
 **Checkpoint**: `User Story 4` is fully functional - ruleset definitions render reusable access rules that can be referenced by compute primitives.
 

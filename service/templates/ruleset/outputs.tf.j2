@@ -1,0 +1,13 @@
+output "service_name" {
+  value = "{{ service_name }}"
+  description = "Ruleset service name"
+}
+
+output "destination_names" {
+  value = [
+    {% for dest in destinations %}
+    terrasquid_destination_configuration.{{ dest.resource_name }}.name,
+    {% endfor %}
+  ]
+  description = "List of destination configuration names"
+}

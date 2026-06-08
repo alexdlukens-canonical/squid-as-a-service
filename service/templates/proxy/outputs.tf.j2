@@ -1,0 +1,9 @@
+output "lxd_network_cidr" {
+  value = lxd_network.{{ service_name }}-br.config[0].ipv4.address
+  description = "CIDR of the LXD network for ACL rule source"
+}
+
+output "squid_application_name" {
+  value = juju_application.{{ service_name }}-squid.name
+  description = "Name of the Squid application"
+}
