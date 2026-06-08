@@ -64,7 +64,7 @@ def test_status_response_unit_matches_juju_unit(juju, deployed_charms):
     address = _unit_address(juju, deployed_charms["saas_app"])
     response = requests.get(f"{_api_url(address)}/status/", timeout=10)
     data = response.json()
-    assert data["unit"].startswith("squid-as-a-service/")
+    assert data["unit"].startswith("terrasquid/")
 
 
 def test_unauthenticated_mutating_request_rejected(juju, deployed_charms):

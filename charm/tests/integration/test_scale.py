@@ -17,7 +17,7 @@ import requests
 CHARM_DIR = Path(__file__).parent.parent.parent
 JUJU_BIN = "/snap/juju/current/bin/juju"
 
-_SAAS_APP = "squid-as-a-service"
+_SAAS_APP = "terrasquid"
 _UNIT = f"{_SAAS_APP}/0"
 _API_PORT = 8080
 

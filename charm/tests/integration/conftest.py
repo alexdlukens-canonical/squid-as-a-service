@@ -49,7 +49,7 @@ def deployed_charms(juju):
     )
     juju.deploy(
         charm_path,
-        app="squid-as-a-service",
+        app="terrasquid",
         base="ubuntu@24.04",
         config={
             "api-port": 8080,
@@ -57,11 +57,11 @@ def deployed_charms(juju):
             "gunicorn-workers": 2,
         },
     )
-    juju.integrate("squid-as-a-service:database", "postgresql:database")
+    juju.integrate("terrasquid:database", "postgresql:database")
 
     juju.wait(jubilant.all_active, timeout=300)
 
-    return {"saas_app": "squid-as-a-service", "pg_app": "postgresql"}
+    return {"saas_app": "terrasquid", "pg_app": "postgresql"}
 
 
 def _find_charm_file() -> str:
