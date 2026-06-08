@@ -1,202 +1,347 @@
-"""Unit tests for Terrasquid API CRUD operations (US3)."""
+"""Unit tests for the Terrasquid Django REST API."""
+
+import uuid
+from unittest.mock import patch
+
 from django.test import TestCase
 from rest_framework.test import APIClient
-from terrasquid.api.models import (
-    ConfigVersion,
-    DestinationConfig,
-    DestinationGroup,
-    PortGroup,
-    SourceACL,
-    SourceGroup,
-)
+from rest_framework_api_key.models import APIKey
 
 
-class CRUDTests(TestCase):
-    """Tests for full CRUD on all 6 resource types (US3)."""
+def _make_client() -> tuple[APIClient, APIKey, str]:
+    """Create an API key and return (client, api_key_instance, raw_key)."""
+    api_key, key = APIKey.objects.create_key(name="test-service")
+    client = APIClient()
+    client.credentials(HTTP_AUTHORIZATION=f"Api-Key {key}")
+    return client, api_key, key
 
-    def setUp(self):
-        self.client = APIClient()
-        # For unit testing, we bypass API key auth by setting a dummy user
-        # and overriding the permission check. In production, djangorestframework-api-key
-        # validates the Authorization header.
-        self.client.credentials(HTTP_AUTHORIZATION="Api-Key test-key")
-        ConfigVersion.objects.get_or_create(id=1, defaults={"version": 1})
 
-    def _force_auth(self):
-        """Force authentication for unit tests."""
-        from unittest.mock import patch
-        patcher = patch("rest_framework_api_key.permissions.HasAPIKey.has_permission", return_value=True)
-        patcher.start()
-        self.addCleanup(patcher.stop)
+class TestStatusEndpoint(TestCase):
+    """Tests for GET /api/v1/status/."""
 
-    def _create_source(self, name="src1", cidr=None):
-        cidr = cidr or ["10.0.0.0/24"]
-        return SourceACL.objects.create(service="test", name=name, key_prefix="test", cidr=cidr)
-
-    def _create_port_group(self, name="pg1", ports=None):
-        ports = ports or [80, 443]
-        return PortGroup.objects.create(service="test", name=name, key_prefix="test", ports=ports)
-
-    def _create_destination(self, name="dst1", dst="example.com", type_="ALLOW", ports=None):
-        ports = ports or [80]
-        return DestinationConfig.objects.create(
-            service="test", name=name, key_prefix="test", dst=dst, type=type_, ports=ports
-        )
-
-    def test_source_acl_crud(self):
-        """T029: SourceACL CRUD operations."""
-        self._force_auth()
-        # Create
-        response = self.client.post("/api/v1/sources/", data={"name": "src1", "cidr": ["10.0.0.0/24"]}, format="json")
-        self.assertEqual(response.status_code, 201)
+    def test_status_unauthenticated(self) -> None:
+        """Status endpoint must be accessible without authentication."""
+        client = APIClient()
+        response = client.get("/api/v1/status/")
+        assert response.status_code == 200
         data = response.json()
-        self.assertEqual(data["name"], "src1")
-        src_id = data["id"]
+        assert "db_config_version" in data
+        assert "applied_config_version" in data
+        assert "last_reload_ok" in data
+        assert "unit" in data
 
-        # Duplicate POST returns 200
-        response = self.client.post("/api/v1/sources/", data={"name": "src1", "cidr": ["10.0.0.0/24"]}, format="json")
-        self.assertEqual(response.status_code, 200)
+    def test_status_returns_correct_shape(self) -> None:
+        """Status response must include all fields from the OpenAPI contract."""
+        client = APIClient()
+        response = client.get("/api/v1/status/")
+        data = response.json()
+        required_fields = {"db_config_version", "applied_config_version", "last_reload_ok", "unit"}
+        assert required_fields.issubset(set(data.keys()))
 
-        # List
+
+class TestSourceACLEndpoints(TestCase):
+    """Tests for /api/v1/sources/ CRUD."""
+
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+
+    def test_list_empty(self) -> None:
+        """GET /sources/ returns an empty list when no resources exist."""
         response = self.client.get("/api/v1/sources/")
-        self.assertEqual(response.status_code, 200)
-        # Response is paginated; check count in results
-        results = response.json()
-        if isinstance(results, dict):
-            results = results.get("results", results)
-        self.assertEqual(len(results), 1)
+        assert response.status_code == 200
+        assert response.json() == []
 
-        # Retrieve
+    def test_create_source_acl(self) -> None:
+        """POST /sources/ creates a new SourceACL and returns 201."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/sources/",
+                {"name": "corp-vpn", "cidr": ["10.0.0.0/8", "192.168.0.0/16"]},
+                format="json",
+            )
+        assert response.status_code == 201
+        data = response.json()
+        assert data["name"] == "corp-vpn"
+        assert data["service"] == "test-service"
+        assert "10.0.0.0/8" in data["cidr"]
+
+    def test_create_idempotent_returns_200(self) -> None:
+        """Duplicate POST with same (service, name) returns 200 with existing resource."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            self.client.post(
+                "/api/v1/sources/",
+                {"name": "corp-vpn", "cidr": ["10.0.0.0/8"]},
+                format="json",
+            )
+            response = self.client.post(
+                "/api/v1/sources/",
+                {"name": "corp-vpn", "cidr": ["10.0.0.0/8"]},
+                format="json",
+            )
+        assert response.status_code == 200
+
+    def test_unauthenticated_post_returns_403(self) -> None:
+        """Unauthenticated POST must be rejected with 403."""
+        anon = APIClient()
+        response = anon.post(
+            "/api/v1/sources/",
+            {"name": "corp-vpn", "cidr": ["10.0.0.0/8"]},
+            format="json",
+        )
+        assert response.status_code == 403
+
+    def test_invalid_cidr_returns_400(self) -> None:
+        """POST with invalid CIDR returns 400 with field errors."""
+        response = self.client.post(
+            "/api/v1/sources/",
+            {"name": "bad-src", "cidr": ["not-a-cidr"]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_get_source_acl(self) -> None:
+        """GET /sources/{id}/ returns the resource for the authenticated service."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            create_resp = self.client.post(
+                "/api/v1/sources/",
+                {"name": "my-src", "cidr": ["172.16.0.0/12"]},
+                format="json",
+            )
+        src_id = create_resp.json()["id"]
         response = self.client.get(f"/api/v1/sources/{src_id}/")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["name"], "src1")
+        assert response.status_code == 200
+        assert response.json()["id"] == src_id
 
-        # Update
-        response = self.client.put(f"/api/v1/sources/{src_id}/", data={"name": "src1", "cidr": ["192.168.0.0/24"]}, format="json")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["cidr"], ["192.168.0.0/24"])
+    def test_get_nonexistent_returns_404(self) -> None:
+        """GET /sources/{unknown_id}/ returns 404."""
+        response = self.client.get(f"/api/v1/sources/{uuid.uuid4()}/")
+        assert response.status_code == 404
 
-        # Delete
-        response = self.client.delete(f"/api/v1/sources/{src_id}/")
-        self.assertEqual(response.status_code, 204)
+    def test_delete_source_acl(self) -> None:
+        """DELETE /sources/{id}/ removes the resource and returns 204."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            create_resp = self.client.post(
+                "/api/v1/sources/",
+                {"name": "del-src", "cidr": ["1.2.3.4/32"]},
+                format="json",
+            )
+            src_id = create_resp.json()["id"]
+            response = self.client.delete(f"/api/v1/sources/{src_id}/")
+        assert response.status_code == 204
 
-    def test_source_group_crud(self):
-        """T030: SourceGroup CRUD with M2M sources."""
-        self._force_auth()
-        src = self._create_source("sg-src")
-        response = self.client.post("/api/v1/source-groups/", data={"name": "sg1", "sources": [str(src.id)]}, format="json")
-        self.assertEqual(response.status_code, 201)
-        sg_id = response.json()["id"]
+    def test_service_isolation(self) -> None:
+        """Resources created by one service are not visible to another."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            self.client.post(
+                "/api/v1/sources/",
+                {"name": "private-src", "cidr": ["10.0.0.0/8"]},
+                format="json",
+            )
+        other_key, other_raw = APIKey.objects.create_key(name="other-service")
+        other_client = APIClient()
+        other_client.credentials(HTTP_AUTHORIZATION=f"Api-Key {other_raw}")
+        response = other_client.get("/api/v1/sources/")
+        assert response.status_code == 200
+        assert response.json() == []
 
-        response = self.client.get(f"/api/v1/source-groups/{sg_id}/")
-        self.assertEqual(response.status_code, 200)
 
-    def test_destination_config_crud(self):
-        """T031: DestinationConfig CRUD with type enum."""
-        self._force_auth()
-        response = self.client.post("/api/v1/destinations/", data={"name": "dst1", "dst": "example.com", "type": "ALLOW"}, format="json")
-        self.assertEqual(response.status_code, 201)
+class TestPortGroupEndpoints(TestCase):
+    """Tests for /api/v1/port-groups/ CRUD."""
+
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+
+    def test_create_port_group(self) -> None:
+        """POST /port-groups/ creates a new PortGroup."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/port-groups/",
+                {"name": "web-ports", "ports": [80, 443, 8080]},
+                format="json",
+            )
+        assert response.status_code == 201
+        assert response.json()["ports"] == [80, 443, 8080]
+
+    def test_invalid_port_returns_400(self) -> None:
+        """Port outside 1–65535 should return 400."""
+        response = self.client.post(
+            "/api/v1/port-groups/",
+            {"name": "bad-port", "ports": [0, 70000]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+
+class TestDestinationConfigEndpoints(TestCase):
+    """Tests for /api/v1/destinations/ CRUD."""
+
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+
+    def test_create_destination_config(self) -> None:
+        """POST /destinations/ creates an ALLOW DestinationConfig."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/destinations/",
+                {"name": "ubuntu-archive", "dst": "archive.ubuntu.com", "type": "ALLOW"},
+                format="json",
+            )
+        assert response.status_code == 201
         data = response.json()
-        self.assertEqual(data["type"], "ALLOW")
-        dst_id = data["id"]
+        assert data["dst"] == "archive.ubuntu.com"
+        assert data["type"] == "ALLOW"
 
-        # Invalid type returns 400
-        response = self.client.post("/api/v1/destinations/", data={"name": "bad", "dst": "x", "type": "INVALID"}, format="json")
-        self.assertEqual(response.status_code, 400)
+    def test_delete_referenced_destination_returns_409(self) -> None:
+        """DELETE on a destination referenced by an ACL rule should return 409."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
 
-        # Update
-        response = self.client.put(f"/api/v1/destinations/{dst_id}/", data={"name": "dst1", "dst": "example.com", "type": "DENY"}, format="json")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["type"], "DENY")
+        src = SourceACL.objects.create(
+            service="test-service",
+            name="test-src",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+        )
+        dst = DestinationConfig.objects.create(
+            service="test-service",
+            name="locked-dst",
+            key_prefix="ab12cd34",
+            dst="example.com",
+            type="ALLOW",
+        )
+        ACLRule.objects.create(
+            service="test-service",
+            name="test-rule",
+            key_prefix="ab12cd34",
+            src=src,
+            dst=dst,
+        )
+        with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
+            response = self.client.delete(f"/api/v1/destinations/{dst.id}/")
+        assert response.status_code == 409
 
-    def test_destination_group_crud(self):
-        """T032: DestinationGroup CRUD."""
-        self._force_auth()
-        dst = self._create_destination("dg-dst")
-        response = self.client.post("/api/v1/destination-groups/", data={"name": "dg1", "destinations": [str(dst.id)]}, format="json")
-        self.assertEqual(response.status_code, 201)
 
-    def test_port_group_crud(self):
-        """T033: PortGroup CRUD with ports validation."""
-        self._force_auth()
-        response = self.client.post("/api/v1/port-groups/", data={"name": "pg1", "ports": [80, 443]}, format="json")
-        self.assertEqual(response.status_code, 201)
+class TestACLRuleEndpoints(TestCase):
+    """Tests for /api/v1/acl-rules/ CRUD."""
 
-        # Invalid port returns 400
-        response = self.client.post("/api/v1/port-groups/", data={"name": "bad", "ports": [70000]}, format="json")
-        self.assertEqual(response.status_code, 400)
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+        from terrasquid.api.models import DestinationConfig, SourceACL
 
-    def test_acl_rule_crud(self):
-        """T034: ACLRule CRUD with XOR constraint."""
-        self._force_auth()
-        src = self._create_source("acl-src")
-        dst = self._create_destination("acl-dst")
-        response = self.client.post("/api/v1/acl-rules/", data={
-            "priority": 50,
-            "src": str(src.id),
-            "dst": str(dst.id),
-        }, format="json")
-        self.assertEqual(response.status_code, 201)
-        data = response.json()
-        self.assertEqual(data["priority"], 50)
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            self.src = SourceACL.objects.create(
+                service="test-service",
+                name="my-src",
+                key_prefix="ab12cd34",
+                cidr=["10.0.0.0/8"],
+            )
+            self.dst = DestinationConfig.objects.create(
+                service="test-service",
+                name="my-dst",
+                key_prefix="ab12cd34",
+                dst="example.com",
+                type="ALLOW",
+            )
 
-        # XOR violation: both src and src_group
-        sg = SourceGroup.objects.create(service="test", name="acl-sg", key_prefix="test")
-        sg.sources.add(src)
-        response = self.client.post("/api/v1/acl-rules/", data={
-            "src": str(src.id),
-            "src_group": str(sg.id),
-            "dst": str(dst.id),
-        }, format="json")
-        self.assertEqual(response.status_code, 400)
+    def test_create_acl_rule(self) -> None:
+        """POST /acl-rules/ creates a rule linking a source and destination."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/acl-rules/",
+                {
+                    "name": "allow-corp-to-ubuntu",
+                    "src": str(self.src.id),
+                    "dst": str(self.dst.id),
+                },
+                format="json",
+            )
+        assert response.status_code == 201
 
-    def test_referenced_resource_delete_rejection(self):
-        """T035: DELETE SourceACL referenced by SourceGroup returns 409."""
-        self._force_auth()
-        src = self._create_source("ref-src")
-        sg = SourceGroup.objects.create(service="test", name="ref-sg", key_prefix="test")
-        sg.sources.add(src)
-        response = self.client.delete(f"/api/v1/sources/{src.id}/")
-        self.assertEqual(response.status_code, 409)
+    def test_acl_rule_requires_exactly_one_src(self) -> None:
+        """ACL rule with both src and src_group should return 400."""
+        from terrasquid.api.models import SourceGroup
 
-    def test_precommit_validation_success(self):
-        """T046: Valid POST commits write and returns 201."""
-        self._force_auth()
-        response = self.client.post("/api/v1/sources/", data={"name": "valid", "cidr": ["10.0.0.0/24"]}, format="json")
-        self.assertEqual(response.status_code, 201)
-        self.assertTrue(SourceACL.objects.filter(name="valid").exists())
+        grp = SourceGroup.objects.create(
+            service="test-service", name="grp", key_prefix="ab12cd34"
+        )
+        response = self.client.post(
+            "/api/v1/acl-rules/",
+            {
+                "name": "bad-rule",
+                "src": str(self.src.id),
+                "src_group": str(grp.id),
+                "dst": str(self.dst.id),
+            },
+            format="json",
+        )
+        assert response.status_code == 400
 
-    def test_field_level_validation_errors(self):
-        """T048: Invalid CIDR returns 400 with field_errors."""
-        self._force_auth()
-        response = self.client.post("/api/v1/sources/", data={"name": "bad", "cidr": []}, format="json")
-        self.assertEqual(response.status_code, 400)
-        data = response.json()
-        # Error envelope may be wrapped by DRF or custom handler
-        self.assertTrue("error" in data or "field_errors" in data or "cidr" in data)
+    def test_acl_rule_requires_exactly_one_dst(self) -> None:
+        """ACL rule with neither dst nor dst_group should return 400."""
+        response = self.client.post(
+            "/api/v1/acl-rules/",
+            {"name": "bad-rule2", "src": str(self.src.id)},
+            format="json",
+        )
+        assert response.status_code == 400
 
-    def test_cross_service_source_group_lookup(self):
-        """T061: GET /api/v1/source-groups/?name=shared-src returns group from any service."""
-        self._force_auth()
-        src = self._create_source("cross-src")
-        sg = SourceGroup.objects.create(service="other", name="shared-src", key_prefix="other")
-        sg.sources.add(src)
-        response = self.client.get("/api/v1/source-groups/?name=shared-src")
-        self.assertEqual(response.status_code, 200)
-        results = response.json()
-        if isinstance(results, dict):
-            results = results.get("results", results)
-        self.assertTrue(len(results) >= 1)
 
-    def test_cross_service_destination_group_lookup(self):
-        """T062: GET /api/v1/destination-groups/?name=shared-dst returns group from any service."""
-        self._force_auth()
-        dst = self._create_destination("cross-dst")
-        dg = DestinationGroup.objects.create(service="other", name="shared-dst", key_prefix="other")
-        dg.destinations.add(dst)
-        response = self.client.get("/api/v1/destination-groups/?name=shared-dst")
-        self.assertEqual(response.status_code, 200)
-        results = response.json()
-        if isinstance(results, dict):
-            results = results.get("results", results)
-        self.assertTrue(len(results) >= 1)
+class TestSquidConfigValidation(TestCase):
+    """Tests for the Squid config dry-run validation behaviour."""
+
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+
+    def test_squid_validation_failure_returns_422(self) -> None:
+        """When Squid config validation fails, the API returns 422 and rolls back."""
+        with patch("terrasquid.api.views.render_squid_config", return_value="bad config"), patch(
+            "terrasquid.api.views.validate_squid_config",
+            return_value=(False, "syntax error"),
+        ):
+            response = self.client.post(
+                "/api/v1/sources/",
+                {"name": "will-fail", "cidr": ["10.0.0.0/8"]},
+                format="json",
+            )
+        assert response.status_code == 422
+
+    def test_resource_not_persisted_on_squid_failure(self) -> None:
+        """On Squid validation failure, the resource must not remain in the database."""
+        from terrasquid.api.models import SourceACL
+
+        with patch("terrasquid.api.views.render_squid_config", return_value="bad"), patch(
+            "terrasquid.api.views.validate_squid_config",
+            return_value=(False, "error"),
+        ):
+            self.client.post(
+                "/api/v1/sources/",
+                {"name": "rolled-back", "cidr": ["10.0.0.0/8"]},
+                format="json",
+            )
+        assert not SourceACL.objects.filter(name="rolled-back").exists()

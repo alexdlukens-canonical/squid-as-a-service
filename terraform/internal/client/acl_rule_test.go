@@ -19,8 +19,8 @@ func TestListACLRules(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/acl-rules/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/acl-rules/")
+		if r.URL.Path != "/api/v1/acl-rules/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/acl-rules/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -74,8 +74,8 @@ func TestCreateACLRule(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/acl-rules/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/acl-rules/")
+		if r.URL.Path != "/api/v1/acl-rules/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/acl-rules/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -127,8 +127,8 @@ func TestGetACLRule(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/acl-rules/rule-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/acl-rules/rule-1/")
+		if r.URL.Path != "/api/v1/acl-rules/rule-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/acl-rules/rule-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -161,8 +161,8 @@ func TestUpdateACLRule(t *testing.T) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/acl-rules/rule-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/acl-rules/rule-1/")
+		if r.URL.Path != "/api/v1/acl-rules/rule-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/acl-rules/rule-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -209,8 +209,8 @@ func TestDeleteACLRule(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/acl-rules/rule-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/acl-rules/rule-1/")
+		if r.URL.Path != "/api/v1/acl-rules/rule-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/acl-rules/rule-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

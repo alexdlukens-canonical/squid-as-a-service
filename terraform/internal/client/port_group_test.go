@@ -15,8 +15,8 @@ func TestListPortGroups(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/port-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/port-groups/")
+		if r.URL.Path != "/api/v1/port-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/port-groups/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -54,8 +54,8 @@ func TestCreatePortGroup(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/port-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/port-groups/")
+		if r.URL.Path != "/api/v1/port-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/port-groups/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -99,8 +99,8 @@ func TestGetPortGroup(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/port-groups/pg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/port-groups/pg-1/")
+		if r.URL.Path != "/api/v1/port-groups/pg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/port-groups/pg-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -129,8 +129,8 @@ func TestUpdatePortGroup(t *testing.T) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/port-groups/pg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/port-groups/pg-1/")
+		if r.URL.Path != "/api/v1/port-groups/pg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/port-groups/pg-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -174,8 +174,8 @@ func TestDeletePortGroup(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/port-groups/pg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/port-groups/pg-1/")
+		if r.URL.Path != "/api/v1/port-groups/pg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/port-groups/pg-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

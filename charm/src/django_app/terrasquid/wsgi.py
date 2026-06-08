@@ -1,4 +1,5 @@
-"""WSGI config for terrasquid project."""
+"""WSGI configuration for the Terrasquid project."""
+
 import os
 
 from django.core.wsgi import get_wsgi_application

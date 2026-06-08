@@ -9,7 +9,7 @@ import (
 )
 
 func (c *APIClient) ListSourceACLs(ctx context.Context) ([]model.SourceACL, error) {
-	resp, err := c.doRequest("GET", "/sources/", nil)
+	resp, err := c.doRequest("GET", "/api/v1/sources/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -21,7 +21,7 @@ func (c *APIClient) ListSourceACLs(ctx context.Context) ([]model.SourceACL, erro
 }
 
 func (c *APIClient) CreateSourceACL(ctx context.Context, input model.SourceACLInput) (*model.SourceACL, error) {
-	resp, err := c.doRequest("POST", "/sources/", input)
+	resp, err := c.doRequest("POST", "/api/v1/sources/", input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -33,7 +33,7 @@ func (c *APIClient) CreateSourceACL(ctx context.Context, input model.SourceACLIn
 }
 
 func (c *APIClient) GetSourceACL(ctx context.Context, id string) (*model.SourceACL, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/sources/%s/", id), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/sources/%s/", id), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -45,7 +45,7 @@ func (c *APIClient) GetSourceACL(ctx context.Context, id string) (*model.SourceA
 }
 
 func (c *APIClient) UpdateSourceACL(ctx context.Context, id string, input model.SourceACLInput) (*model.SourceACL, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/sources/%s/", id), input)
+	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/sources/%s/", id), input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -57,7 +57,7 @@ func (c *APIClient) UpdateSourceACL(ctx context.Context, id string, input model.
 }
 
 func (c *APIClient) DeleteSourceACL(ctx context.Context, id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/sources/%s/", id), nil)
+	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/sources/%s/", id), nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

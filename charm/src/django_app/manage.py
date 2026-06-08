@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Django's command-line utility for administrative tasks."""
+"""Django management script for the Terrasquid application."""
+
 import os
 import sys
 
 
-def main():
+def main() -> None:
     """Run administrative tasks."""
     os.environ.setdefault("DJANGO_SETTINGS_MODULE", "terrasquid.settings")
     try:

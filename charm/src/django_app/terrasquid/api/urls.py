@@ -1,9 +1,9 @@
-"""API URL configuration for terrasquid."""
+"""URL routing for the Terrasquid API v1."""
+
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
-from terrasquid.api.metrics import metrics_view
-from terrasquid.api.views import (
+from .views import (
     ACLRuleViewSet,
     DestinationConfigViewSet,
     DestinationGroupViewSet,
@@ -23,6 +23,5 @@ router.register(r"acl-rules", ACLRuleViewSet, basename="aclrule")
 
 urlpatterns = [
     path("status/", StatusView.as_view(), name="status"),
-    path("metrics/", metrics_view, name="metrics"),
     path("", include(router.urls)),
 ]

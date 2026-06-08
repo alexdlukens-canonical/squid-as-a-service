@@ -63,3 +63,6 @@ Thumbs.db
 *.charm
 .ruff_cache/
 .pytest_cache/
+
+**/terraform.tfvars
+**/*.tfstate*

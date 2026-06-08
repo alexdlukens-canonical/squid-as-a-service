@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/terrasquid/terraform-provider-terrasquid/internal/model"
 )
 
 func (c *APIClient) ListSourceGroups(ctx context.Context) ([]model.SourceGroup, error) {
-	resp, err := c.doRequest("GET", "/source-groups/", nil)
+	resp, err := c.doRequest("GET", "/api/v1/source-groups/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -21,7 +22,7 @@ func (c *APIClient) ListSourceGroups(ctx context.Context) ([]model.SourceGroup, 
 }
 
 func (c *APIClient) CreateSourceGroup(ctx context.Context, input model.SourceGroupInput) (*model.SourceGroup, error) {
-	resp, err := c.doRequest("POST", "/source-groups/", input)
+	resp, err := c.doRequest("POST", "/api/v1/source-groups/", input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -33,7 +34,7 @@ func (c *APIClient) CreateSourceGroup(ctx context.Context, input model.SourceGro
 }
 
 func (c *APIClient) GetSourceGroup(ctx context.Context, id string) (*model.SourceGroup, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/source-groups/%s/", id), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/source-groups/%s/", id), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -45,7 +46,7 @@ func (c *APIClient) GetSourceGroup(ctx context.Context, id string) (*model.Sourc
 }
 
 func (c *APIClient) GetSourceGroupByName(ctx context.Context, name string) (*model.SourceGroup, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/source-groups/?name=%s", name), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/source-groups/?name=%s", url.QueryEscape(name)), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -60,7 +61,7 @@ func (c *APIClient) GetSourceGroupByName(ctx context.Context, name string) (*mod
 }
 
 func (c *APIClient) UpdateSourceGroup(ctx context.Context, id string, input model.SourceGroupInput) (*model.SourceGroup, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/source-groups/%s/", id), input)
+	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/source-groups/%s/", id), input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -72,7 +73,7 @@ func (c *APIClient) UpdateSourceGroup(ctx context.Context, id string, input mode
 }
 
 func (c *APIClient) DeleteSourceGroup(ctx context.Context, id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/source-groups/%s/", id), nil)
+	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/source-groups/%s/", id), nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

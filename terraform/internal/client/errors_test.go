@@ -90,3 +90,24 @@ func TestIsUnauthorizedError_OtherErrorType(t *testing.T) {
 		t.Error("IsUnauthorizedError = true, want false")
 	}
 }
+
+func TestIsConflictError_True(t *testing.T) {
+	err := &APIError{StatusCode: 409}
+	if !IsConflictError(err) {
+		t.Error("IsConflictError = false, want true")
+	}
+}
+
+func TestIsConflictError_FalseStatus(t *testing.T) {
+	err := &APIError{StatusCode: 404}
+	if IsConflictError(err) {
+		t.Error("IsConflictError = true, want false")
+	}
+}
+
+func TestIsConflictError_OtherErrorType(t *testing.T) {
+	err := errors.New("conflict")
+	if IsConflictError(err) {
+		t.Error("IsConflictError = true, want false")
+	}
+}

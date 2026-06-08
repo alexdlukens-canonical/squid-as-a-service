@@ -1,13 +1,17 @@
-"""Django models for Terrasquid API resources."""
-import re
+"""Django models for the Terrasquid API."""
+
+import ipaddress
 import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
+NAME_PATTERN = r"^[a-zA-Z0-9_-]+$"
+SERVICE_PATTERN = r"^[a-zA-Z0-9_-]+$"
+
 
 class BaseResource(models.Model):
-    """Abstract base model for all Terrasquid resources."""
+    """Abstract base model shared by all API-managed resources."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     service = models.CharField(max_length=255)
@@ -19,144 +23,166 @@ class BaseResource(models.Model):
     class Meta:
         abstract = True
 
-    def clean(self):
-        super().clean()
-        if not re.match(r"^[a-zA-Z0-9_-]+$", self.name):
-            raise ValidationError({"name": "Name must match ^[a-zA-Z0-9_-]+$"})
-        if not re.match(r"^[a-zA-Z0-9_-]+$", self.service):
-            raise ValidationError({"service": "Service must match ^[a-zA-Z0-9_-]+$"})
-
 
 class SourceACL(BaseResource):
-    """Source ACL with CIDR blocks."""
+    """A source access control list entry representing a set of CIDRs."""
 
     cidr = models.JSONField(default=list)
 
     class Meta:
         unique_together = [("service", "name")]
 
-    def clean(self):
-        super().clean()
-        if not isinstance(self.cidr, list) or not self.cidr:
-            raise ValidationError({"cidr": "cidr must be a non-empty list"})
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
 
 
 class SourceGroup(BaseResource):
-    """Group of SourceACLs."""
+    """A named group of SourceACL entries for use in ACL rules."""
 
-    sources = models.ManyToManyField(SourceACL, related_name="source_groups")
-
-    class Meta:
-        unique_together = [("service", "name")]
-
-
-class DestinationConfig(BaseResource):
-    """Destination configuration."""
-
-    TYPE_ALLOW = "ALLOW"
-    TYPE_DENY = "DENY"
-    TYPE_CONNECT = "CONNECT"
-    TYPE_CHOICES = [
-        (TYPE_ALLOW, "ALLOW"),
-        (TYPE_DENY, "DENY"),
-        (TYPE_CONNECT, "CONNECT"),
-    ]
-
-    dst = models.TextField()
-    type = models.CharField(max_length=10, choices=TYPE_CHOICES)
-    ports = models.JSONField(default=list, blank=True, null=True)
-    port_groups = models.ManyToManyField("PortGroup", related_name="destination_configs", blank=True)
+    sources = models.ManyToManyField(SourceACL, blank=True, related_name="source_groups")
 
     class Meta:
         unique_together = [("service", "name")]
 
-    def clean(self):
-        super().clean()
-        if self.type in (self.TYPE_ALLOW, self.TYPE_DENY) and not self.ports:
-            self.ports = [80]
-        if self.type == self.TYPE_CONNECT and not self.ports:
-            self.ports = [443]
-
-
-class DestinationGroup(BaseResource):
-    """Group of DestinationConfigs."""
-
-    destinations = models.ManyToManyField(DestinationConfig, related_name="destination_groups")
-
-    class Meta:
-        unique_together = [("service", "name")]
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
 
 
 class PortGroup(BaseResource):
-    """Group of ports."""
+    """A named group of TCP port numbers."""
 
     ports = models.JSONField(default=list)
 
     class Meta:
         unique_together = [("service", "name")]
 
-    def clean(self):
-        super().clean()
-        if not isinstance(self.ports, list) or not self.ports:
-            raise ValidationError({"ports": "ports must be a non-empty list"})
-        for port in self.ports:
-            if not isinstance(port, int) or port < 1 or port > 65535:
-                raise ValidationError({"ports": f"Port {port} is not in range 1-65535"})
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
 
 
-class ACLRule(BaseResource):
-    """ACL rule linking source to destination."""
+class DestinationConfig(BaseResource):
+    """A destination rule specifying a host/CIDR and the action to apply."""
 
-    name = models.CharField(max_length=63, blank=True, null=True)
-    priority = models.IntegerField(default=100)
-    src = models.ForeignKey(SourceACL, on_delete=models.PROTECT, null=True, blank=True, related_name="acl_rules_src")
-    src_group = models.ForeignKey(
-        SourceGroup, on_delete=models.PROTECT, null=True, blank=True, related_name="acl_rules_src_group"
-    )
-    dst = models.ForeignKey(
-        DestinationConfig, on_delete=models.PROTECT, null=True, blank=True, related_name="acl_rules_dst"
-    )
-    dst_group = models.ForeignKey(
-        DestinationGroup,
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name="acl_rules_dst_group",
+    class ActionType(models.TextChoices):
+        ALLOW = "ALLOW", "Allow"
+        DENY = "DENY", "Deny"
+        CONNECT = "CONNECT", "Connect (HTTPS CONNECT tunnel)"
+
+    dst = models.TextField()
+    type = models.CharField(max_length=10, choices=ActionType.choices)
+    ports = models.JSONField(default=list, null=True, blank=True)
+    port_groups = models.ManyToManyField(PortGroup, blank=True, related_name="destination_configs")
+
+    class Meta:
+        unique_together = [("service", "name")]
+
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
+
+    @property
+    def is_cidr(self) -> bool:
+        """Return True if the dst field is an IP network (CIDR) rather than a domain."""
+        try:
+            ipaddress.ip_network(self.dst, strict=False)
+            return True
+        except ValueError:
+            return False
+
+    def effective_ports(self) -> list[int]:
+        """Return the merged list of ports from direct ports and port groups."""
+        result: set[int] = set(self.ports or [])
+        for pg in self.port_groups.all():
+            result.update(pg.ports)
+        if not result:
+            result = {443} if self.type == self.ActionType.CONNECT else {80}
+        return sorted(result)
+
+
+class DestinationGroup(BaseResource):
+    """A named group of DestinationConfig entries for use in ACL rules."""
+
+    destinations = models.ManyToManyField(
+        DestinationConfig, blank=True, related_name="destination_groups"
     )
 
     class Meta:
-        constraints = [
-            models.CheckConstraint(
-                condition=models.Q(src__isnull=True, src_group__isnull=False)
-                | models.Q(src__isnull=False, src_group__isnull=True),
-                name="acl_src_xor",
-                violation_error_message="Exactly one of src or src_group must be set.",
-            ),
-            models.CheckConstraint(
-                condition=models.Q(dst__isnull=True, dst_group__isnull=False)
-                | models.Q(dst__isnull=False, dst_group__isnull=True),
-                name="acl_dst_xor",
-                violation_error_message="Exactly one of dst or dst_group must be set.",
-            ),
-        ]
-        unique_together = [("service", "src", "src_group", "dst", "dst_group")]
+        unique_together = [("service", "name")]
 
-    def clean(self):
-        super().clean()
-        if (self.src is None and self.src_group is None) or (self.src is not None and self.src_group is not None):
-            raise ValidationError({"src": "Exactly one of src or src_group must be set."})
-        if (self.dst is None and self.dst_group is None) or (self.dst is not None and self.dst_group is not None):
-            raise ValidationError({"dst": "Exactly one of dst or dst_group must be set."})
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
+
+
+class ACLRule(BaseResource):
+    """A Squid ACL rule pairing a source and destination with a priority."""
+
+    priority = models.IntegerField(default=100)
+    src = models.ForeignKey(
+        SourceACL, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules"
+    )
+    src_group = models.ForeignKey(
+        SourceGroup, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules"
+    )
+    dst = models.ForeignKey(
+        DestinationConfig,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="dst_rules",
+    )
+    dst_group = models.ForeignKey(
+        DestinationGroup,
+        null=True,
+        blank=True,
+        on_delete=models.PROTECT,
+        related_name="dst_rules",
+    )
+
+    class Meta:
+        unique_together = [("service", "name")]
+
+    def clean(self) -> None:
+        """Validate that exactly one source and one destination is specified."""
+        has_src = self.src_id is not None
+        has_src_group = self.src_group_id is not None
+        if has_src == has_src_group:
+            raise ValidationError("Exactly one of src or src_group must be set.")
+        has_dst = self.dst_id is not None
+        has_dst_group = self.dst_group_id is not None
+        if has_dst == has_dst_group:
+            raise ValidationError("Exactly one of dst or dst_group must be set.")
+
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return f"{self.service}/{self.name}"
 
 
 class ConfigVersion(models.Model):
-    """Singleton configuration version tracker."""
+    """Singleton tracking the current rendered Squid configuration version."""
 
-    id = models.IntegerField(primary_key=True, default=1)
     version = models.IntegerField(default=0)
-    rendered_config = models.TextField(blank=True, null=True)
+    rendered_config = models.TextField(default="")
     updated_at = models.DateTimeField(auto_now=True)
 
-    def save(self, *args, **kwargs):
-        self.id = 1
+    def save(self, *args, **kwargs) -> None:
+        self.pk = 1
         super().save(*args, **kwargs)
+
+    @classmethod
+    def get(cls) -> "ConfigVersion":
+        """Return the singleton ConfigVersion, creating it if absent."""
+        obj, _ = cls.objects.get_or_create(pk=1)
+        return obj
+
+    @classmethod
+    def increment(cls, rendered_config: str) -> "ConfigVersion":
+        """Bump the version counter and store the new rendered config."""
+        obj = cls.get()
+        obj.version += 1
+        obj.rendered_config = rendered_config
+        obj.save()
+        return obj

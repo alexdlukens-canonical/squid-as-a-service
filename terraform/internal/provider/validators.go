@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"sort"
 
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
@@ -30,8 +31,8 @@ func (v xorFieldValidator) ValidateResource(ctx context.Context, req resource.Va
 		return
 	}
 
-	aSet := !aVal.IsNull() && !aVal.IsUnknown()
-	bSet := !bVal.IsNull() && !bVal.IsUnknown()
+	aSet := !aVal.IsNull()
+	bSet := !bVal.IsNull()
 
 	if aSet && bSet {
 		resp.Diagnostics.AddError(
@@ -75,5 +76,19 @@ func intSliceToInt64Slice(in []int) []int64 {
 	for i, v := range in {
 		out[i] = int64(v)
 	}
+	return out
+}
+
+func sortIntSlice(in []int) []int {
+	out := make([]int, len(in))
+	copy(out, in)
+	sort.Ints(out)
+	return out
+}
+
+func sortInt64Slice(in []int64) []int64 {
+	out := make([]int64, len(in))
+	copy(out, in)
+	sort.Slice(out, func(i, j int) bool { return out[i] < out[j] })
 	return out
 }

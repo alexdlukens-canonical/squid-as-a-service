@@ -15,8 +15,8 @@ func TestListSourceACLs(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/sources/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/sources/")
+		if r.URL.Path != "/api/v1/sources/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/sources/")
 		}
 		if r.Header.Get("Authorization") != "Api-Key test-api-key" {
 			t.Errorf("Authorization = %q, want %q", r.Header.Get("Authorization"), "Api-Key test-api-key")
@@ -60,8 +60,8 @@ func TestCreateSourceACL(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/sources/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/sources/")
+		if r.URL.Path != "/api/v1/sources/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/sources/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -111,8 +111,8 @@ func TestGetSourceACL(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/sources/acl-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/sources/acl-1/")
+		if r.URL.Path != "/api/v1/sources/acl-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/sources/acl-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -144,8 +144,8 @@ func TestUpdateSourceACL(t *testing.T) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/sources/acl-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/sources/acl-1/")
+		if r.URL.Path != "/api/v1/sources/acl-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/sources/acl-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -189,8 +189,8 @@ func TestDeleteSourceACL(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/sources/acl-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/sources/acl-1/")
+		if r.URL.Path != "/api/v1/sources/acl-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/sources/acl-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

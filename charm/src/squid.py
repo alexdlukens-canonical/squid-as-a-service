@@ -1,56 +1,49 @@
-"""Squid workload helper functions for Terrasquid charm."""
+"""Squid process and configuration management helpers."""
+
+import logging
 import subprocess
 from pathlib import Path
-from typing import Any
 
-BASE_SQUID_CONF = """# Base Squid configuration managed by Terrasquid
-http_port {squid_port}
+logger = logging.getLogger(__name__)
 
-# Include Terrasquid generated config
-include /etc/squid/conf.d/terrasquid.conf
-
-# Extra config from charm config
-{squid_extra_config}
-"""
+SQUID_SERVICE = "squid"
+SQUID_CONF_PATH = Path("/etc/squid/squid.conf")
+SQUID_SPOOL_DIR = Path("/var/spool/squid")
 
 
 def install_squid() -> None:
-    """Install Squid via apt."""
-    subprocess.run(["apt-get", "update", "-qq"], check=False)
-    subprocess.run(["apt-get", "install", "-y", "-qq", "squid"], check=True)
+    """Install the Squid package via apt."""
+    subprocess.run(["apt-get", "install", "-y", "squid"], check=True)
 
 
-def write_base_config(squid_port: int = 3128, squid_extra_config: str = "") -> None:
-    """Write base Squid configuration with include directive."""
-    config = BASE_SQUID_CONF.format(
-        squid_port=squid_port,
-        squid_extra_config=squid_extra_config,
-    )
-    Path("/etc/squid/squid.conf").write_text(config)
-    Path("/etc/squid/conf.d").mkdir(parents=True, exist_ok=True)
+def write_squid_config(config_text: str, path: Path = SQUID_CONF_PATH) -> None:
+    """Write rendered config to disk atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(config_text)
+    tmp.rename(path)
+    logger.info("Wrote Squid config to %s", path)
 
 
-def render_config(template: str, context: dict[str, Any]) -> str:
-    """Render Squid configuration from Jinja2 template and context."""
-    from jinja2 import Template
+def reload_squid() -> tuple[bool, str]:
+    """Send SIGHUP to Squid (reconfigure in-place).
 
-    return Template(template).render(context)
-
-
-def validate_config(config_path: str) -> bool:
-    """Validate Squid configuration using squid -k parse."""
+    Returns (success, error_message).
+    """
     result = subprocess.run(
-        ["squid", "-k", "parse", "-f", config_path],
+        ["systemctl", "reload-or-restart", SQUID_SERVICE],
         capture_output=True,
         text=True,
+    )
+    if result.returncode != 0:
+        return False, (result.stderr or result.stdout).strip()
+    return True, ""
+
+
+def squid_service_running() -> bool:
+    """Return True if the Squid systemd service is active."""
+    result = subprocess.run(
+        ["systemctl", "is-active", "--quiet", SQUID_SERVICE],
+        capture_output=True,
     )
     return result.returncode == 0
-
-
-def reload_squid() -> subprocess.CompletedProcess:
-    """Reload Squid configuration."""
-    return subprocess.run(
-        ["squid", "-k", "reconfigure"],
-        capture_output=True,
-        text=True,
-    )

@@ -44,7 +44,7 @@ func isRetryableError(err error) bool {
 }
 
 func isRetryableStatus(code int) bool {
-	return code >= 500 && code < 600
+	return (code >= 500 && code < 600) || code == http.StatusTooManyRequests
 }
 
 func (c *APIClient) doRequest(method, path string, body interface{}) (*http.Response, error) {

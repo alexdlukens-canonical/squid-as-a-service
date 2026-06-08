@@ -10,6 +10,7 @@ type ACLRule struct {
 }
 
 type ACLRuleInput struct {
+	Name      string  `json:"name"`
 	Priority  int     `json:"priority"`
 	Src       *string `json:"src,omitempty"`
 	SrcGroup  *string `json:"src_group,omitempty"`

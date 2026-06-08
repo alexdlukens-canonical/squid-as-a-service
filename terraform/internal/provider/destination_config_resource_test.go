@@ -41,6 +41,38 @@ resource "terrasquid_destination_config" "test" {
 	})
 }
 
+func TestAccDestinationConfigResource_withoutPortGroups(t *testing.T) {
+	srv, _ := newMockServer(t)
+	t.Setenv("TERRASQUID_ENDPOINT", srv.URL)
+	t.Setenv("TERRASQUID_API_KEY", "valid-key")
+
+	resource.Test(t, resource.TestCase{
+		ProtoV6ProviderFactories: testAccProtoV6ProviderFactories,
+		Steps: []resource.TestStep{
+			{
+				Config: testAccProviderConfig() + `
+resource "terrasquid_destination_config" "test" {
+  name  = "test-dest-no-pg"
+  dst   = "192.168.1.1"
+  type  = "ALLOW"
+  ports = [80, 443]
+}
+`,
+				Check: resource.ComposeAggregateTestCheckFunc(
+					resource.TestCheckResourceAttr("terrasquid_destination_config.test", "name", "test-dest-no-pg"),
+					resource.TestCheckResourceAttr("terrasquid_destination_config.test", "ports.#", "2"),
+					resource.TestCheckResourceAttrSet("terrasquid_destination_config.test", "id"),
+				),
+			},
+			{
+				ResourceName:      "terrasquid_destination_config.test",
+				ImportState:       true,
+				ImportStateVerify: true,
+			},
+		},
+	})
+}
+
 func TestAccDestinationConfigResource_update(t *testing.T) {
 	srv, _ := newMockServer(t)
 	t.Setenv("TERRASQUID_ENDPOINT", srv.URL)

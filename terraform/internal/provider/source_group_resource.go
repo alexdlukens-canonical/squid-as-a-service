@@ -79,7 +79,9 @@ func (r *SourceGroupResource) Configure(_ context.Context, req resource.Configur
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	r.client = c
+	if c != nil {
+		r.client = c
+	}
 }
 
 func (r *SourceGroupResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -195,6 +197,10 @@ func (r *SourceGroupResource) Delete(ctx context.Context, req resource.DeleteReq
 	err := r.client.DeleteSourceGroup(ctx, state.ID.ValueString())
 	if err != nil {
 		if client.IsNotFoundError(err) {
+			return
+		}
+		if client.IsConflictError(err) {
+			resp.Diagnostics.AddError("Resource In Use", fmt.Sprintf("Cannot delete source group %q because it is referenced by ACL rules: %s", state.ID.ValueString(), err))
 			return
 		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to delete source group: %s", err))

@@ -68,34 +68,18 @@ func (r *ACLRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 				Computed: true,
 				Default:  int64default.StaticInt64(100),
 			},
-			"src": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"src_group": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"dst": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
-			"dst_group": schema.StringAttribute{
-				Optional: true,
-				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
-			},
+		"src": schema.StringAttribute{
+			Optional: true,
+		},
+		"src_group": schema.StringAttribute{
+			Optional: true,
+		},
+		"dst": schema.StringAttribute{
+			Optional: true,
+		},
+		"dst_group": schema.StringAttribute{
+			Optional: true,
+		},
 			"service": schema.StringAttribute{
 				Computed: true,
 				PlanModifiers: []planmodifier.String{
@@ -116,9 +100,6 @@ func (r *ACLRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"updated_at": schema.StringAttribute{
 				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
 			},
 		},
 	}
@@ -130,7 +111,9 @@ func (r *ACLRuleResource) Configure(_ context.Context, req resource.ConfigureReq
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	r.client = c
+	if c != nil {
+		r.client = c
+	}
 }
 
 func (r *ACLRuleResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -141,6 +124,7 @@ func (r *ACLRuleResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	input := model.ACLRuleInput{
+		Name:     plan.Name.ValueString(),
 		Priority: int(plan.Priority.ValueInt64()),
 		Src:      stringPtr(plan.Src),
 		SrcGroup: stringPtr(plan.SrcGroup),
@@ -203,12 +187,15 @@ func (r *ACLRuleResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 func (r *ACLRuleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan ACLRuleResourceModel
+	var state ACLRuleResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
 
 	input := model.ACLRuleInput{
+		Name:     plan.Name.ValueString(),
 		Priority: int(plan.Priority.ValueInt64()),
 		Src:      stringPtr(plan.Src),
 		SrcGroup: stringPtr(plan.SrcGroup),
@@ -216,7 +203,11 @@ func (r *ACLRuleResource) Update(ctx context.Context, req resource.UpdateRequest
 		DstGroup: stringPtr(plan.DstGroup),
 	}
 
-	result, err := r.client.UpdateACLRule(ctx, plan.ID.ValueString(), input)
+	id := plan.ID.ValueString()
+	if id == "" {
+		id = state.ID.ValueString()
+	}
+	result, err := r.client.UpdateACLRule(ctx, id, input)
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to update ACL rule: %s", err))
 		return

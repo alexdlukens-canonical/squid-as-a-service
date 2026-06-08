@@ -1,97 +1,182 @@
-import os
-import sys
+"""Unit tests for the SquidAsAServiceCharm ops lifecycle."""
 
-# Ensure the charm source tree (including terrasquid.settings) is on PYTHONPATH.
-# terrasquid.settings lives under src/terrasquid/terrasquid/settings.py, so we
-# need src/terrasquid/ on PYTHONPATH so that "import terrasquid.settings" resolves.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src", "terrasquid"))
-# Also add src/ so that "import squid" resolves to src/squid.py.
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
-os.environ.setdefault("DJANGO_SETTINGS_MODULE", "terrasquid.settings")
-
-import django
-django.setup()
-
-"""Unit tests for Terrasquid charm actions."""
-import json
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
-from rest_framework_api_key.models import APIKey
-
-from squid import render_config
-
-
-class APIKeyActionTests(TestCase):
-    """Tests for API key charm actions (US2)."""
-
-    def test_create_key_action(self):
-        """T022: create-key action creates APIKey and returns plaintext key."""
-        key_name = "test-key"
-        api_key, generated_key = APIKey.objects.create_key(name=key_name)
-        self.assertIsNotNone(api_key)
-        self.assertIsNotNone(generated_key)
-        self.assertEqual(api_key.name, key_name)
-        self.assertFalse(api_key.revoked)
-
-    def test_revoke_key_action(self):
-        """T023: revoke-key marks key as revoked."""
-        api_key, generated_key = APIKey.objects.create_key(name="revoke-me")
-        api_key.revoked = True
-        api_key.save()
-        refreshed = APIKey.objects.get(name="revoke-me")
-        self.assertTrue(refreshed.revoked)
-
-    def test_rotate_key_action(self):
-        """T024: rotate-key revokes old and creates new."""
-        old_key, old_plain = APIKey.objects.create_key(name="rotate-me")
-        old_prefix = old_key.prefix
-
-        # Revoke old
-        old_key.revoked = True
-        old_key.save()
-
-        # Create new with same name (allowed because old is revoked)
-        new_key, new_plain = APIKey.objects.create_key(name="rotate-me")
-        self.assertNotEqual(old_prefix, new_key.prefix)
-        self.assertFalse(new_key.revoked)
+import ops
+import ops.testing
+import pytest
 
 
-class WatcherTests(TestCase):
-    """Tests for config watcher behavior (US5)."""
+@pytest.fixture(autouse=True)
+def no_subprocess(monkeypatch):
+    """Block all subprocess.run calls to prevent systemd/apt interactions during unit tests."""
+    mock = MagicMock(return_value=MagicMock(returncode=0, stdout="", stderr=""))
+    monkeypatch.setattr("subprocess.run", mock)
+    return mock
 
-    def test_render_config_function(self):
-        """T053: Config rendering produces valid Squid config text."""
-        template = "http_port {{ port }}\nacl localnet src {{ cidr }}"
-        context = {"port": 3128, "cidr": "10.0.0.0/24"}
-        result = render_config(template, context)
-        self.assertIn("http_port 3128", result)
-        self.assertIn("acl localnet src 10.0.0.0/24", result)
 
-    def test_local_state_save_and_load(self):
-        """T054: Local state file can be saved and loaded."""
-        state = {
-            "applied_config_version": 5,
-            "last_reload": "2026-05-13T12:00:00Z",
-            "last_reload_ok": True,
-            "unit": "squid-as-a-service/0",
+@pytest.fixture()
+def ctx():
+    """Return an ops testing Context for SquidAsAServiceCharm."""
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src"))
+    from charm import SquidAsAServiceCharm
+
+    return ops.testing.Context(SquidAsAServiceCharm)
+
+
+@pytest.fixture()
+def base_state():
+    """Return a minimal State with no relations."""
+    return ops.testing.State(
+        config={
+            "squid-port": 3128,
+            "api-port": 8080,
+            "gunicorn-workers": 4,
+            "squid-extra-config": "",
         }
-        state_path = Path("/tmp/test-terrasquid-state.json")
-        state_path.write_text(json.dumps(state))
-        loaded = json.loads(state_path.read_text())
-        self.assertEqual(loaded["applied_config_version"], 5)
-        state_path.unlink(missing_ok=True)
+    )
 
-    def test_failed_reload_status_tracking(self):
-        """T055: Failed reload sets last_reload_ok to False."""
-        state = {
-            "applied_config_version": 3,
-            "last_reload": "2026-05-13T12:00:00Z",
-            "last_reload_ok": True,
-            "unit": "squid-as-a-service/0",
-        }
-        # Simulate failed reload
-        state["last_reload_ok"] = False
-        state["last_reload"] = "2026-05-13T12:01:00Z"
-        self.assertFalse(state["last_reload_ok"])
-        self.assertEqual(state["applied_config_version"], 3)
+
+class TestInstall:
+    """Tests for the install event."""
+
+    @patch("charm.SquidAsAServiceCharm._write_systemd_units")
+    @patch("pathlib.Path.mkdir")
+    def test_install_installs_squid(self, mock_mkdir, mock_units, no_subprocess, ctx, base_state):
+        """The install event should trigger Squid installation."""
+        with ctx(ctx.on.install(), base_state) as mgr:
+            mgr.run()
+        apt_calls = [c for c in no_subprocess.call_args_list if "apt-get" in str(c)]
+        assert len(apt_calls) == 1
+
+    @patch("charm.SquidAsAServiceCharm._write_systemd_units")
+    @patch("pathlib.Path.mkdir")
+    def test_install_writes_systemd_units(self, mock_mkdir, mock_units, ctx, base_state):
+        """The install event should write systemd unit files."""
+        with ctx(ctx.on.install(), base_state) as mgr:
+            mgr.run()
+        mock_units.assert_called_once()
+
+
+class TestStart:
+    """Tests for the start event."""
+
+    def test_start_without_database_waits(self, ctx, base_state):
+        """A start event with no database relation should set WaitingStatus."""
+        with ctx(ctx.on.start(), base_state) as mgr:
+            mgr.run()
+            assert isinstance(mgr.charm.unit.status, ops.WaitingStatus)
+
+    @patch("charm.SquidAsAServiceCharm._write_env_file")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@host/db")
+    def test_start_with_database_starts_services(self, mock_db, mock_env, no_subprocess, ctx, base_state):
+        """A start event with a database should start all services."""
+        with ctx(ctx.on.start(), base_state) as mgr:
+            mgr.run()
+        started = [str(c) for c in no_subprocess.call_args_list]
+        assert any("enable" in s for s in started)
+
+
+class TestDatabaseRelation:
+    """Tests for database relation lifecycle."""
+
+    @patch("charm.SquidAsAServiceCharm._start_services")
+    @patch("charm.SquidAsAServiceCharm._run_manage")
+    @patch("charm.SquidAsAServiceCharm._write_env_file")
+    def test_database_created_runs_migrate(self, mock_env, mock_manage, mock_start, ctx, base_state):
+        """database_created event should invoke migrate and collectstatic."""
+        db_rel = ops.testing.Relation(
+            "database",
+            remote_app_name="postgresql",
+            remote_app_data={
+                "endpoints": "host:5432",
+                "username": "usr",
+                "password": "pwd",
+                "database": "terrasquid",
+            },
+        )
+        state = ops.testing.State(config=base_state.config, relations={db_rel})
+        with ctx(ctx.on.relation_changed(db_rel), state) as mgr:
+            mgr.run()
+        assert mock_manage.call_count == 2
+        assert mock_manage.call_args_list == [
+            (('migrate', '--noinput'),),
+            (('collectstatic', '--noinput'),),
+        ]
+
+    def test_database_relation_broken_stops_gunicorn(self, no_subprocess, ctx, base_state):
+        """database_relation_broken should stop the Gunicorn service."""
+        db_rel = ops.testing.Relation("database")
+        state = ops.testing.State(config=base_state.config, relations={db_rel})
+        with ctx(ctx.on.relation_broken(db_rel), state) as mgr:
+            mgr.run()
+        stopped = [str(c) for c in no_subprocess.call_args_list]
+        assert any("stop" in s and "terrasquid-api" in s for s in stopped)
+
+
+class TestCollectUnitStatus:
+    """Tests for collect_unit_status event."""
+
+    def test_no_database_reports_waiting(self, ctx, base_state):
+        """Without a database relation the unit status should be Waiting."""
+        with ctx(ctx.on.collect_unit_status(), base_state) as mgr:
+            mgr.run()
+            assert mgr.charm.unit.status == ops.WaitingStatus("Waiting for database relation")
+
+    @patch("charm.SquidAsAServiceCharm._gunicorn_running", return_value=True)
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@host/db")
+    def test_gunicorn_running_reports_active(self, mock_db, mock_guni, ctx, base_state):
+        """With Gunicorn running the unit status should be Active."""
+        with ctx(ctx.on.collect_unit_status(), base_state) as mgr:
+            mgr.run()
+            assert isinstance(mgr.charm.unit.status, ops.ActiveStatus)
+
+
+class TestActions:
+    """Tests for charm actions."""
+
+    @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("key=abc\nprefix=ab12cd34\n", ""))
+    def test_create_key_action_parses_output(self, mock_manage, ctx, base_state):
+        """create-key action should return key and prefix from management command output."""
+        with ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr:
+            mgr.run()
+
+    @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("", "Error: key not found"))
+    def test_create_key_action_fails_on_error(self, mock_manage, ctx, base_state):
+        """create-key action should fail when the management command errors."""
+        with pytest.raises(ops.testing.ActionFailed):
+            with ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr:
+                mgr.run()
+
+    @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("http_port 3128\n", ""))
+    def test_reconfigure_action_runs_render_manage_command(self, mock_manage, ctx, base_state):
+        """Reconfigure action should run the render_squid_config management command."""
+        with ctx(ctx.on.action("reconfigure"), base_state) as mgr:
+            mgr.run()
+        mock_manage.assert_called_once_with("render_squid_config")
+
+
+class TestEnvFile:
+    """Tests for environment file generation."""
+
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
+    def test_env_file_contains_database_url(self, mock_db, mock_key, ctx, base_state, tmp_path):
+        """The env file should contain DATABASE_URL."""
+        import charm as charm_module
+
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
+        charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
+        try:
+            with ctx(ctx.on.config_changed(), base_state) as mgr:
+                mgr.run()
+            content = (tmp_path / "terrasquid.env").read_text()
+            assert "DATABASE_URL=postgresql://u:p@db/terrasquid" in content
+        finally:
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn

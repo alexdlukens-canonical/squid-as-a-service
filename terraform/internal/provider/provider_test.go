@@ -69,6 +69,10 @@ func newMockServer(t *testing.T) (*httptest.Server, *mockStore) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		path := r.URL.Path
+		if strings.HasPrefix(path, "/api/v1/") {
+			path = "/" + strings.TrimPrefix(path, "/api/v1/")
+			r.URL.Path = path
+		}
 
 		if path == "/status/" && r.Method == http.MethodGet {
 			json.NewEncoder(w).Encode(model.Status{

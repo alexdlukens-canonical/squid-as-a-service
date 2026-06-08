@@ -15,8 +15,8 @@ func TestListDestinationConfigs(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/destinations/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destinations/")
+		if r.URL.Path != "/api/v1/destinations/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destinations/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -66,8 +66,8 @@ func TestCreateDestinationConfig(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/destinations/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destinations/")
+		if r.URL.Path != "/api/v1/destinations/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destinations/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -116,8 +116,8 @@ func TestGetDestinationConfig(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/destinations/dc-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destinations/dc-1/")
+		if r.URL.Path != "/api/v1/destinations/dc-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destinations/dc-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -149,8 +149,8 @@ func TestUpdateDestinationConfig(t *testing.T) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/destinations/dc-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destinations/dc-1/")
+		if r.URL.Path != "/api/v1/destinations/dc-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destinations/dc-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -200,8 +200,8 @@ func TestDeleteDestinationConfig(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/destinations/dc-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destinations/dc-1/")
+		if r.URL.Path != "/api/v1/destinations/dc-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destinations/dc-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

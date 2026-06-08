@@ -79,7 +79,9 @@ func (r *SourceACLResource) Configure(_ context.Context, req resource.ConfigureR
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	r.client = c
+	if c != nil {
+		r.client = c
+	}
 }
 
 func (r *SourceACLResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {
@@ -195,6 +197,10 @@ func (r *SourceACLResource) Delete(ctx context.Context, req resource.DeleteReque
 	err := r.client.DeleteSourceACL(ctx, state.ID.ValueString())
 	if err != nil {
 		if client.IsNotFoundError(err) {
+			return
+		}
+		if client.IsConflictError(err) {
+			resp.Diagnostics.AddError("Resource In Use", fmt.Sprintf("Cannot delete source ACL %q because it is referenced by other resources: %s", state.ID.ValueString(), err))
 			return
 		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to delete source ACL: %s", err))

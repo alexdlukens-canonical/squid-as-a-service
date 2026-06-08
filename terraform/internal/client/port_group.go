@@ -9,7 +9,7 @@ import (
 )
 
 func (c *APIClient) ListPortGroups(ctx context.Context) ([]model.PortGroup, error) {
-	resp, err := c.doRequest("GET", "/port-groups/", nil)
+	resp, err := c.doRequest("GET", "/api/v1/port-groups/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -21,7 +21,7 @@ func (c *APIClient) ListPortGroups(ctx context.Context) ([]model.PortGroup, erro
 }
 
 func (c *APIClient) CreatePortGroup(ctx context.Context, input model.PortGroupInput) (*model.PortGroup, error) {
-	resp, err := c.doRequest("POST", "/port-groups/", input)
+	resp, err := c.doRequest("POST", "/api/v1/port-groups/", input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -33,7 +33,7 @@ func (c *APIClient) CreatePortGroup(ctx context.Context, input model.PortGroupIn
 }
 
 func (c *APIClient) GetPortGroup(ctx context.Context, id string) (*model.PortGroup, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/port-groups/%s/", id), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/port-groups/%s/", id), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -45,7 +45,7 @@ func (c *APIClient) GetPortGroup(ctx context.Context, id string) (*model.PortGro
 }
 
 func (c *APIClient) UpdatePortGroup(ctx context.Context, id string, input model.PortGroupInput) (*model.PortGroup, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/port-groups/%s/", id), input)
+	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/port-groups/%s/", id), input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -57,7 +57,7 @@ func (c *APIClient) UpdatePortGroup(ctx context.Context, id string, input model.
 }
 
 func (c *APIClient) DeletePortGroup(ctx context.Context, id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/port-groups/%s/", id), nil)
+	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/port-groups/%s/", id), nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}

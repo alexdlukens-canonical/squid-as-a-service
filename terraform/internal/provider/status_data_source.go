@@ -60,7 +60,9 @@ func (d *StatusDataSource) Configure(_ context.Context, req datasource.Configure
 		resp.Diagnostics.AddError("Client Error", err.Error())
 		return
 	}
-	d.client = c
+	if c != nil {
+		d.client = c
+	}
 }
 
 func (d *StatusDataSource) Read(ctx context.Context, _ datasource.ReadRequest, resp *datasource.ReadResponse) {

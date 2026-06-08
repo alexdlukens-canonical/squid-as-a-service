@@ -1,0 +1,1 @@
+"""Terrasquid API Django application."""

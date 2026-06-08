@@ -1,390 +1,448 @@
-"""Terrasquid machine charm - Squid-as-a-Service."""
+#!/usr/bin/env python3
+"""Terrasquid (Squid-as-a-Service) Juju machine charm."""
+
 import json
+import logging
 import os
 import subprocess
-import urllib.parse
+import textwrap
+from datetime import UTC
 from pathlib import Path
 
 import ops
-from charms.data_platform_libs.v0.data_interfaces import DatabaseCreatedEvent, DatabaseRequires
+from charms.data_platform_libs.v0.data_interfaces import (
+    DatabaseCreatedEvent,
+    DatabaseEndpointsChangedEvent,
+    DatabaseRequires,
+)
 
-SQUID_BASE_CONFIG = """# Base Squid configuration managed by Terrasquid
-http_port {squid_port}
+import secrets
 
-# Include Terrasquid generated config
-include /etc/squid/conf.d/terrasquid.conf
+import squid
 
-# Extra config from charm config
-{squid_extra_config}
-"""
+logger = logging.getLogger(__name__)
 
-GUNICORN_UNIT = """[Unit]
-Description=Terrasquid API (Gunicorn)
-After=network.target
+CHARM_DIR = Path(__file__).parent.parent
+VENV_BIN = CHARM_DIR / "venv" / "bin"
+DJANGO_APP_DIR = CHARM_DIR / "src" / "django_app"
 
-[Service]
-Type=simple
-User=www-data
-Group=www-data
-Environment=DJANGO_SETTINGS_MODULE=terrasquid.settings
-Environment=DATABASE_URL={database_url}
-Environment=DJANGO_SECRET_KEY={secret_key}
-Environment=HOME=/var/lib/terrasquid
-WorkingDirectory=/var/lib/terrasquid
-ExecStart=/var/lib/terrasquid/.venv/bin/gunicorn terrasquid.wsgi:application --bind 0.0.0.0:{api_port} --workers {workers}
-Restart=on-failure
+TERRASQUID_ENV_FILE = Path("/etc/terrasquid/terrasquid.env")
+TERRASQUID_STATUS_FILE = Path("/var/lib/terrasquid/status.json")
+TERRASQUID_RUN_DIR = Path("/var/lib/terrasquid")
 
-[Install]
-WantedBy=multi-user.target
-"""
-
-WATCHER_UNIT = """[Unit]
-Description=Terrasquid Config Watcher
-After=network.target postgresql.service
-
-[Service]
-Type=simple
-User=root
-Environment=DATABASE_URL={database_url}
-Environment=JUJU_UNIT_NAME={unit_name}
-Environment=JUJU_LEADER={is_leader}
-ExecStart=/var/lib/terrasquid/.venv/bin/python /var/lib/terrasquid/watcher.py
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-"""
+GUNICORN_SERVICE = "terrasquid-api"
+GUNICORN_CONF_FILE = Path("/etc/terrasquid/gunicorn.conf.py")
+SQUID_WATCHER_SERVICE = "terrasquid-watcher"
+SQUID_WATCHER_TIMER = "terrasquid-watcher.timer"
 
 
-TERRASQUID_PYTHON = "/var/lib/terrasquid/.venv/bin/python"
-TERRASQUID_MANAGE = "/var/lib/terrasquid/manage.py"
-
-
-class TerrasquidCharm(ops.CharmBase):
-    """Terrasquid machine charm."""
+class SquidAsAServiceCharm(ops.CharmBase):
+    """Terrasquid Juju charm managing Gunicorn + Squid on Ubuntu 24.04."""
 
     def __init__(self, *args):
         super().__init__(*args)
+
+        self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
+
         self.framework.observe(self.on.install, self._on_install)
-        self.framework.observe(self.on.start, self._on_start)
-        self.framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
-        self.database = DatabaseRequires(
-            self,
-            relation_name="database",
-            database_name="terrasquid",
-        )
+        self.framework.observe(self.on.start, self._on_start)
+        self.framework.observe(self.on.stop, self._on_stop)
+        self.framework.observe(self.on.upgrade_charm, self._on_upgrade_charm)
+        self.framework.observe(self.on.collect_unit_status, self._on_collect_unit_status)
+
         self.framework.observe(self.database.on.database_created, self._on_database_created)
-        self.framework.observe(self.database.on.endpoints_changed, self._on_database_created)
-        for action_name in ["create-key", "revoke-key", "rotate-key", "list-keys", "reconfigure"]:
-            self.framework.observe(
-                getattr(self.on, f"{action_name.replace('-', '_')}_action"),
-                getattr(self, f"_on_{action_name.replace('-', '_')}", self._no_op),
-            )
+        self.framework.observe(self.database.on.endpoints_changed, self._on_database_endpoints_changed)
+        self.framework.observe(
+            self.on.database_relation_broken, self._on_database_relation_broken
+        )
 
-    def _on_install(self, event: ops.InstallEvent) -> None:
-        """Install Squid and set up systemd services."""
+        self.framework.observe(self.on.create_key_action, self._on_create_key_action)
+        self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
+        self.framework.observe(self.on.rotate_key_action, self._on_rotate_key_action)
+        self.framework.observe(self.on.list_keys_action, self._on_list_keys_action)
+        self.framework.observe(self.on.reconfigure_action, self._on_reconfigure_action)
+        self.framework.observe(self.on.createsuperuser_action, self._on_createsuperuser_action)
+
+    # ── Lifecycle ────────────────────────────────────────────────────────────
+
+    def _on_install(self, _event: ops.InstallEvent) -> None:
         self.unit.status = ops.MaintenanceStatus("Installing Squid")
-        subprocess.run(["apt-get", "update", "-qq"], check=False)
-        subprocess.run(["apt-get", "install", "-y", "-qq", "squid", "python3-venv"], check=False)
-        Path("/var/www").mkdir(parents=True, exist_ok=True)
-        subprocess.run(["chown", "www-data:www-data", "/var/www"], check=False)
-        self._setup_terrasquid_workdir()
-        self._write_base_squid_config()
+        squid.install_squid()
+        TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
+        TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
         self._write_systemd_units()
-        self.unit.status = ops.BlockedStatus("Waiting for database relation")
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
 
-    def _on_start(self, event: ops.StartEvent) -> None:
-        """Set status on start based on whether the database relation exists."""
-        if not self.model.relations.get("database"):
-            self.unit.status = ops.BlockedStatus("Waiting for database relation")
-
-    def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
-        """Update workdir workload code and refresh database relations after upgrade."""
-        self._update_workdir_code()
-        if not self.unit.is_leader():
+    def _on_config_changed(self, _event: ops.ConfigChangedEvent) -> None:
+        if not self._database_url():
             return
-        for relation in self.model.relations.get("database", []):
-            if not relation.data[self.app].get("database"):
-                self.database.update_relation_data(
-                    relation.id, {"database": self.database.database}
-                )
+        self._write_gunicorn_config()
+        self._write_env_file()
+        self._reload_gunicorn()
+        if self._gunicorn_running():
+            self._open_ports()
 
-    def _write_base_squid_config(self) -> None:
-        """Write base Squid configuration."""
-        config = SQUID_BASE_CONFIG.format(
-            squid_port=self.config.get("squid-port", 3128),
-            squid_extra_config=self.config.get("squid-extra-config", ""),
-        )
-        Path("/etc/squid/squid.conf").write_text(config)
-        Path("/etc/squid/conf.d").mkdir(parents=True, exist_ok=True)
-
-    def _setup_terrasquid_workdir(self) -> None:
-        """Create the terrasquid working directory, virtualenv, and install workload code."""
-        workdir = Path("/var/lib/terrasquid")
-        workdir.mkdir(parents=True, exist_ok=True)
-
-        # Create a virtualenv for the workload
-        venv_path = workdir / ".venv"
-        subprocess.run(["python3", "-m", "venv", str(venv_path)], check=True)
-
-        # Install workload Python dependencies into the virtualenv
-        pip = venv_path / "bin" / "pip"
-        subprocess.run([str(pip), "install", "--upgrade", "pip"], check=False)
-        subprocess.run(
-            [str(pip), "install", "--no-cache-dir"]
-            + self._workload_dependencies(),
-            check=True,
-        )
-
-        # Copy workload source code into the working directory
-        self._copy_workload_code(workdir)
-
-        # Ensure the watcher can find squid.py on PYTHONPATH by creating a .pth file
-        site_packages = list((venv_path / "lib").glob("python3.*/site-packages"))
-        if site_packages:
-            (site_packages[0] / "terrasquid.pth").write_text(
-                str(workdir) + "\n" + str(workdir / "terrasquid") + "\n"
-            )
-
-        subprocess.run(
-            ["chown", "-R", "www-data:www-data", str(workdir)],
-            check=False,
-)
-
-    def _copy_workload_code(self, workdir: Path) -> None:
-        """Copy workload source code from charm source to workdir."""
-        charm_src = Path(__file__).resolve().parent
-        django_app_src = charm_src / "django_app"
-        watcher_src = charm_src / "watcher.py"
-        squid_src = charm_src / "squid.py"
-
-        if django_app_src.exists():
-            for item in django_app_src.iterdir():
-                subprocess.run(
-                    ["cp", "-r", str(item), str(workdir / item.name)],
-                    check=False,
-                )
-        if watcher_src.exists():
-            subprocess.run(["cp", str(watcher_src), str(workdir / "watcher.py")], check=False)
-        if squid_src.exists():
-            subprocess.run(["cp", str(squid_src), str(workdir / "squid.py")], check=False)
-
-    def _update_workdir_code(self) -> None:
-        """Update workload code in workdir during charm upgrade."""
-        workdir = Path("/var/lib/terrasquid")
-        if not workdir.exists():
+    def _on_start(self, _event: ops.StartEvent) -> None:
+        if not self._database_url():
+            self.unit.status = ops.WaitingStatus("Waiting for database relation")
             return
-        self._copy_workload_code(workdir)
-        subprocess.run(["systemctl", "daemon-reload"], check=False)
-        subprocess.run(["systemctl", "try-restart", "gunicorn-terrasquid"], check=False)
-        subprocess.run(["systemctl", "try-restart", "terrasquid-watcher"], check=False)
+        self._start_services()
 
-    def _write_systemd_units(self) -> None:
-        """Write placeholder systemd unit files during install."""
-        # Units will be fully populated when the database relation is established
-        Path("/etc/systemd/system/gunicorn-terrasquid.service").write_text(
-            GUNICORN_UNIT.format(
-                database_url="",
-                secret_key="",
-                api_port=self.config.get("api-port", 8080),
-                workers=self.config.get("gunicorn-workers", 4),
-            )
-        )
-        Path("/etc/systemd/system/terrasquid-watcher.service").write_text(
-            WATCHER_UNIT.format(
-                database_url="",
-                unit_name=str(self.unit.name),
-                is_leader="false",
-            )
-        )
+    def _on_stop(self, _event: ops.StopEvent) -> None:
+        for svc in (GUNICORN_SERVICE, SQUID_WATCHER_SERVICE, squid.SQUID_SERVICE):
+            subprocess.run(["systemctl", "stop", svc], capture_output=True)
+        self.unit.set_ports()
 
-    def _workload_dependencies(self) -> list[str]:
-        """Return the list of pip packages required by the workload."""
-        return [
-            "django>=5.2,<6",
-            "djangorestframework>=3.15",
-            "djangorestframework-api-key>=3.1",
-            "drf-spectacular",
-            "gunicorn",
-            "psycopg[binary]>=3.3",
-            "Jinja2",
-            "dj-database-url",
-        ]
+    def _on_upgrade_charm(self, _event: ops.UpgradeCharmEvent) -> None:
+        self._write_systemd_units()
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+        if self._database_url():
+            self._run_manage("migrate", "--noinput")
+            self._run_manage("collectstatic", "--noinput")
+            self._reload_gunicorn()
 
-    def _on_config_changed(self, event: ops.ConfigChangedEvent) -> None:
-        """Handle charm config changes."""
-        self._write_base_squid_config()
-        if self._database_is_configured():
-            db_url = os.environ.get("DATABASE_URL", "")
-            if db_url:
-                self._write_systemd_units_for_db(db_url)
-            subprocess.run(["systemctl", "daemon-reload"], check=False)
-            subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
+    def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
+        if not self._database_url():
+            event.add_status(ops.WaitingStatus("Waiting for database relation"))
+            return
+        if not self._gunicorn_running():
+            event.add_status(ops.MaintenanceStatus("Starting API service"))
+            return
+        self._sync_config_version_if_stale()
+        api_status = "up"
+        squid_status = "up" if squid.squid_service_running() else "down"
+        config_version = self._read_applied_config_version()
+        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | config v{config_version}"))
 
-    def _database_is_configured(self) -> bool:
-        """Check if the database relation has provided credentials."""
-        unit_file = Path("/etc/systemd/system/gunicorn-terrasquid.service")
-        if unit_file.exists():
-            content = unit_file.read_text()
-            return "DATABASE_URL=postgresql://" in content
-        return False
+    # ── Database relation ─────────────────────────────────────────────────────
 
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
-        """Handle database credentials becoming available."""
-        if not event.username or not event.password or not event.endpoints:
-            self.unit.status = ops.WaitingStatus("Waiting for database credentials")
+        self.unit.status = ops.MaintenanceStatus("Configuring database")
+        self._write_env_file()
+        self._run_manage("migrate", "--noinput")
+        self._run_manage("collectstatic", "--noinput")
+        self._start_services()
+
+    def _on_database_endpoints_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
+        self._write_env_file()
+        self._reload_gunicorn()
+
+    def _on_database_relation_broken(self, _event: ops.RelationBrokenEvent) -> None:
+        self.unit.status = ops.WaitingStatus("Database relation removed")
+        subprocess.run(["systemctl", "stop", GUNICORN_SERVICE], capture_output=True)
+
+    # ── Actions ──────────────────────────────────────────────────────────────
+
+    def _on_create_key_action(self, event: ops.ActionEvent) -> None:
+        name = event.params["name"]
+        out, err = self._run_manage_capture("create_api_key", "--name", name)
+        if err:
+            event.fail(err)
             return
+        result = {}
+        for line in out.splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                result[k.strip()] = v.strip()
+        event.set_results(result)
 
-        endpoint = event.endpoints.split(",")[0]
-        db_url = (
-            f"postgresql://{event.username}:{urllib.parse.quote(event.password)}"
-            f"@{endpoint}/{self.database.database}"
+    def _on_revoke_key_action(self, event: ops.ActionEvent) -> None:
+        name = event.params["name"]
+        out, err = self._run_manage_capture("revoke_api_key", "--name", name)
+        if err:
+            event.fail(err)
+        else:
+            event.set_results({"result": out.strip()})
+
+    def _on_rotate_key_action(self, event: ops.ActionEvent) -> None:
+        name = event.params["name"]
+        out, err = self._run_manage_capture("rotate_api_key", "--name", name)
+        if err:
+            event.fail(err)
+            return
+        result = {}
+        for line in out.splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                result[k.strip()] = v.strip()
+        event.set_results(result)
+
+    def _on_list_keys_action(self, event: ops.ActionEvent) -> None:
+        out, err = self._run_manage_capture("list_api_keys")
+        if err:
+            event.fail(err)
+        else:
+            event.set_results({"keys": out.strip()})
+
+    def _on_reconfigure_action(self, event: ops.ActionEvent) -> None:
+        out, err = self._run_manage_capture("render_squid_config")
+        if err:
+            event.fail(f"Squid reconfigure failed: {err}")
+        else:
+            event.set_results({"result": out.strip() or "Squid config applied successfully."})
+
+    def _on_createsuperuser_action(self, event: ops.ActionEvent) -> None:
+        username = event.params["username"]
+        email = event.params.get("email", "admin@example.com")
+        password = secrets.token_urlsafe(16)
+        env = self._django_env()
+        env["DJANGO_SUPERUSER_PASSWORD"] = password
+        out, err = self._run_manage_capture(
+            "createsuperuser",
+            "--noinput",
+            "--username",
+            username,
+            "--email",
+            email,
+            extra_env=env,
         )
+        if err and "already exists" not in err:
+            event.fail(err)
+        else:
+            event.set_results({"result": f"Superuser '{username}' created.", "password": password})
 
-        os.environ["DATABASE_URL"] = db_url
-        self._write_systemd_units_for_db(db_url)
+    # ── Helpers ───────────────────────────────────────────────────────────────
 
-        if self.unit.is_leader():
-            subprocess.run(
-                [TERRASQUID_PYTHON, TERRASQUID_MANAGE, "migrate"],
-                check=False,
-            )
+    def _database_url(self) -> str:
+        """Build a DATABASE_URL from the data provided by the postgresql relation."""
+        if not self.database.relations:
+            return ""
+        relation_id = self.database.relations[0].id
+        data = self.database.fetch_relation_data().get(relation_id, {})
+        endpoints = data.get("endpoints", "")
+        username = data.get("username", "")
+        password = data.get("password", "")
+        database = data.get("database", "terrasquid")
+        if not (endpoints and username):
+            return ""
+        host_port = endpoints.split(",")[0]
+        return f"postgresql://{username}:{password}@{host_port}/{database}"
 
-        subprocess.run(["systemctl", "daemon-reload"], check=False)
-        subprocess.run(["systemctl", "enable", "gunicorn-terrasquid", "terrasquid-watcher"], check=False)
-        subprocess.run(["systemctl", "restart", "gunicorn-terrasquid"], check=False)
-        subprocess.run(["systemctl", "restart", "terrasquid-watcher"], check=False)
-        self.unit.status = ops.ActiveStatus()
+    def _write_env_file(self) -> None:
+        """Write environment variables to /etc/terrasquid/terrasquid.env."""
+        db_url = self._database_url()
+        secret_key = self._get_or_generate_secret_key()
+        squid_port = self.config.get("squid-port", 3128)
+        squid_prepend_config = self.config.get("squid-prepend-config", "")
+        squid_append_config = self.config.get("squid-append-config", "")
+        squid_default_deny = self.config.get("squid-default-deny", True)
+        content = textwrap.dedent(f"""\
+            DATABASE_URL={db_url}
+            SECRET_KEY={secret_key}
+            ALLOWED_HOSTS=*
+            DJANGO_SETTINGS_MODULE=terrasquid.settings
+            JUJU_UNIT_NAME={self.unit.name}
+            SQUID_PORT={squid_port}
+            SQUID_PREPEND_CONFIG={squid_prepend_config}
+            SQUID_APPEND_CONFIG={squid_append_config}
+            SQUID_DEFAULT_DENY={squid_default_deny}
+            TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
+        """)
+        TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TERRASQUID_ENV_FILE.write_text(content)
+        os.chmod(TERRASQUID_ENV_FILE, 0o640)
 
-    def _write_systemd_units_for_db(self, db_url: str) -> None:
-        """Write systemd units with database URL configured."""
-        secret_key = self.config.get("django-secret-key", "dev-secret-key")
-        gunicorn_unit = GUNICORN_UNIT.format(
-            database_url=db_url,
-            secret_key=secret_key,
-            api_port=self.config.get("api-port", 8080),
-            workers=self.config.get("gunicorn-workers", 4),
+    def _get_or_generate_secret_key(self) -> str:
+        """Return a stable SECRET_KEY, generating one on first call."""
+        key_file = TERRASQUID_RUN_DIR / "secret_key"
+        if key_file.exists():
+            return key_file.read_text().strip()
+        key = secrets.token_hex(50)
+        TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
+        key_file.write_text(key)
+        os.chmod(key_file, 0o600)
+        return key
+
+    def _django_env(self) -> dict:
+        """Return a dict with PYTHONPATH and other Django env variables set."""
+        env = dict(os.environ)
+        env["PYTHONPATH"] = str(DJANGO_APP_DIR)
+        if TERRASQUID_ENV_FILE.exists():
+            for line in TERRASQUID_ENV_FILE.read_text().splitlines():
+                line = line.strip()
+                if line and "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    env[k.strip()] = v.strip()
+        return env
+
+    def _run_manage(self, *args: str) -> None:
+        """Run a Django management command, raising on failure."""
+        cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
+        subprocess.run(cmd, check=True, env=self._django_env(), cwd=str(DJANGO_APP_DIR))
+
+    def _run_manage_capture(
+        self, *args: str, extra_env: dict | None = None
+    ) -> tuple[str, str]:
+        """Run a Django management command and return (stdout, stderr)."""
+        cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
+        env = self._django_env()
+        if extra_env:
+            env.update(extra_env)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(DJANGO_APP_DIR),
         )
-        Path("/etc/systemd/system/gunicorn-terrasquid.service").write_text(gunicorn_unit)
-
-        is_leader = "true" if self.unit.is_leader() else "false"
-        watcher_unit = WATCHER_UNIT.format(
-            database_url=db_url,
-            unit_name=str(self.unit.name),
-            is_leader=is_leader,
-        )
-        Path("/etc/systemd/system/terrasquid-watcher.service").write_text(watcher_unit)
-
-    def _run_manage_keys(self, action: str, name: str | None = None) -> dict | None:
-        """Run the manage_keys Django management command via subprocess."""
-        cmd = [TERRASQUID_PYTHON, TERRASQUID_MANAGE, "manage_keys", action]
-        if name:
-            cmd.extend(["--name", name])
-
-        env = os.environ.copy()
-        db_url = env.get("DATABASE_URL", "")
-        if not db_url:
-            self._load_db_url_from_systemd()
-            db_url = os.environ.get("DATABASE_URL", "")
-        env["DATABASE_URL"] = db_url
-
-        result = subprocess.run(cmd, capture_output=True, text=True, env=env)
         if result.returncode != 0:
-            try:
-                error_data = json.loads(result.stderr)
-                return {"error": error_data.get("error", result.stderr.strip())}
-            except (json.JSONDecodeError, AttributeError):
-                return {"error": result.stderr.strip() or "Unknown error"}
-        return json.loads(result.stdout)
+            return "", result.stderr.strip() or result.stdout.strip()
+        return result.stdout, ""
 
-    def _load_db_url_from_systemd(self) -> None:
-        """Read DATABASE_URL from the gunicorn systemd unit Environment line."""
-        unit_file = Path("/etc/systemd/system/gunicorn-terrasquid.service")
-        if unit_file.exists():
-            content = unit_file.read_text()
-            for line in content.splitlines():
-                if line.strip().startswith("Environment=DATABASE_URL="):
-                    os.environ["DATABASE_URL"] = line.strip().split("=", 2)[2]
+    def _write_gunicorn_config(self) -> None:
+        """Write /etc/terrasquid/gunicorn.conf.py from current charm config."""
+        api_port = self.config.get("api-port", 8080)
+        workers = self.config.get("gunicorn-workers", 4)
+        content = textwrap.dedent(f"""\
+            bind = "0.0.0.0:{api_port}"
+            workers = {workers}
+            timeout = 120
+            worker_class = "sync"
+            accesslog = "/var/log/gunicorn.log"
+            errorlog = "/var/log/gunicorn.log"
+            access_log_format = (
+                '%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs'
+            )
+        """)
+        GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
+        GUNICORN_CONF_FILE.write_text(content)
 
-    def _on_create_key(self, event: ops.ActionEvent) -> None:
-        """Create a new API key."""
-        if not self.unit.is_leader():
-            event.fail("Action must run on the leader unit.")
-            return
-        name = event.params.get("name")
-        if not name:
-            event.fail("Name parameter is required.")
-            return
-        result = self._run_manage_keys("create-key", name)
-        if result is None:
-            event.fail("No response from management command.")
-            return
-        if "error" in result:
-            event.fail(result["error"])
-            return
-        event.set_results(result)
+    def _write_systemd_units(self) -> None:
+        """Write systemd unit files for Gunicorn and the config watcher."""
+        self._write_gunicorn_config()
+        gunicorn_unit = textwrap.dedent(f"""\
+            [Unit]
+            Description=Terrasquid REST API (Gunicorn)
+            After=network.target postgresql.service
+            Wants=network.target
 
-    def _on_revoke_key(self, event: ops.ActionEvent) -> None:
-        """Revoke an API key."""
-        if not self.unit.is_leader():
-            event.fail("Action must run on the leader unit.")
-            return
-        name = event.params.get("name")
-        if not name:
-            event.fail("Name parameter is required.")
-            return
-        result = self._run_manage_keys("revoke-key", name)
-        if result is None:
-            event.fail("No response from management command.")
-            return
-        if "error" in result:
-            event.fail(result["error"])
-            return
-        event.set_results(result)
+            [Service]
+            Type=notify
+            EnvironmentFile={TERRASQUID_ENV_FILE}
+            Environment=PYTHONPATH={DJANGO_APP_DIR}
+            WorkingDirectory={DJANGO_APP_DIR}
+            ExecStart={VENV_BIN}/python -m gunicorn \\
+                --config {GUNICORN_CONF_FILE} \\
+                terrasquid.wsgi:application
+            Restart=on-failure
+            RestartSec=5s
+            StandardOutput=append:/var/log/gunicorn.log
+            StandardError=append:/var/log/gunicorn.log
 
-    def _on_rotate_key(self, event: ops.ActionEvent) -> None:
-        """Rotate an API key."""
-        if not self.unit.is_leader():
-            event.fail("Action must run on the leader unit.")
-            return
-        name = event.params.get("name")
-        if not name:
-            event.fail("Name parameter is required.")
-            return
-        result = self._run_manage_keys("rotate-key", name)
-        if result is None:
-            event.fail("No response from management command.")
-            return
-        if "error" in result:
-            event.fail(result["error"])
-            return
-        event.set_results(result)
+            [Install]
+            WantedBy=multi-user.target
+        """)
+        Path(f"/etc/systemd/system/{GUNICORN_SERVICE}.service").write_text(gunicorn_unit)
 
-    def _on_list_keys(self, event: ops.ActionEvent) -> None:
-        """List all API keys."""
-        if not self.unit.is_leader():
-            event.fail("Action must run on the leader unit.")
-            return
-        result = self._run_manage_keys("list-keys")
-        if result is None:
-            event.fail("No response from management command.")
-            return
-        if "error" in result:
-            event.fail(result["error"])
-            return
-        event.set_results(result)
+        watcher_unit = textwrap.dedent(f"""\
+            [Unit]
+            Description=Terrasquid Squid config version watcher
+            After={GUNICORN_SERVICE}.service
 
-    def _on_reconfigure(self, event: ops.ActionEvent) -> None:
-        """Manually trigger Squid reconfiguration."""
-        subprocess.run(["squid", "-k", "reconfigure"], check=False)
-        event.set_results({"result": "reconfigure triggered"})
+            [Service]
+            Type=oneshot
+            EnvironmentFile={TERRASQUID_ENV_FILE}
+            Environment=PYTHONPATH={DJANGO_APP_DIR}
+            WorkingDirectory={DJANGO_APP_DIR}
+            ExecStart={VENV_BIN}/python {DJANGO_APP_DIR}/manage.py render_squid_config
+            StandardOutput=journal
+            StandardError=journal
+        """)
+        Path(f"/etc/systemd/system/{SQUID_WATCHER_SERVICE}.service").write_text(watcher_unit)
 
-    def _no_op(self, event: ops.EventBase) -> None:
-        """No-op handler."""
-        pass
+        watcher_timer = textwrap.dedent(f"""\
+            [Unit]
+            Description=Terrasquid Squid config watcher timer
+            After={GUNICORN_SERVICE}.service
+
+            [Timer]
+            OnBootSec=10s
+            OnUnitActiveSec=5s
+            Unit={SQUID_WATCHER_SERVICE}.service
+
+            [Install]
+            WantedBy=timers.target
+        """)
+        Path(f"/etc/systemd/system/{SQUID_WATCHER_TIMER}").write_text(watcher_timer)
+
+    def _start_services(self) -> None:
+        """Enable and start all managed systemd services."""
+        subprocess.run(["systemctl", "enable", "--now", GUNICORN_SERVICE], check=True)
+        subprocess.run(["systemctl", "enable", "--now", SQUID_WATCHER_TIMER], check=True)
+        subprocess.run(["systemctl", "enable", "--now", squid.SQUID_SERVICE], check=True)
+        self._open_ports()
+
+    def _reload_gunicorn(self) -> None:
+        """Send SIGHUP to Gunicorn to reload workers."""
+        subprocess.run(["systemctl", "reload-or-restart", GUNICORN_SERVICE], capture_output=True)
+
+    def _gunicorn_running(self) -> bool:
+        """Return True if the Gunicorn service is active."""
+        result = subprocess.run(
+            ["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True
+        )
+        return result.returncode == 0
+
+    def _open_ports(self) -> None:
+        squid_port = int(self.config.get("squid-port", 3128))
+        api_port = int(self.config.get("api-port", 8080))
+        self.unit.set_ports(
+            ops.Port("tcp", squid_port),
+            ops.Port("tcp", api_port),
+        )
+
+    def _sync_config_version_if_stale(self) -> None:
+        """Re-render the Squid config and bump ConfigVersion if DB state diverges from the stored render."""
+        out, err = self._run_manage_capture(
+            "shell",
+            "-c",
+            (
+                "from terrasquid.api.models import ConfigVersion;"
+                "from terrasquid.api.squid_render import render_squid_config;"
+                "cv = ConfigVersion.get();"
+                "rendered = render_squid_config(version=cv.version);"
+                "changed = cv.rendered_config != rendered;"
+                "changed and ConfigVersion.increment(render_squid_config());"
+                "print('stale' if changed else 'ok')"
+            ),
+        )
+        if out.strip() == "stale":
+            logger.info("Config version bumped: DB state diverged from stored render (e.g. admin edit)")
+
+    def _read_applied_config_version(self) -> int:
+        if not TERRASQUID_STATUS_FILE.exists():
+            return 0
+        try:
+            data = json.loads(TERRASQUID_STATUS_FILE.read_text())
+            return data.get("applied_config_version", 0)
+        except (json.JSONDecodeError, OSError):
+            return 0
+
+    def _db_config_version(self) -> int:
+        """Query the current config version from the database."""
+        out, err = self._run_manage_capture(
+            "shell",
+            "-c",
+            "from terrasquid.api.models import ConfigVersion; print(ConfigVersion.get().version)",
+        )
+        try:
+            return int(out.strip())
+        except (ValueError, TypeError):
+            return 0
+
+    def _update_unit_status(self, applied_version: int) -> None:
+        """Write the applied config version and reload timestamp to the status file."""
+        from datetime import datetime
+
+        status = {
+            "applied_config_version": applied_version,
+            "last_reload": datetime.now(UTC).isoformat(),
+            "last_reload_ok": True,
+        }
+        TERRASQUID_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        TERRASQUID_STATUS_FILE.write_text(json.dumps(status))
 
 
 if __name__ == "__main__":
-    ops.main(TerrasquidCharm)
+    ops.main(SquidAsAServiceCharm)

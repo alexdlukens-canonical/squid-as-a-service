@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,8 +17,8 @@ func TestListDestinationGroups(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/destination-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/")
+		if r.URL.Path != "/api/v1/destination-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -55,8 +56,8 @@ func TestCreateDestinationGroup(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/destination-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/")
+		if r.URL.Path != "/api/v1/destination-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -100,8 +101,8 @@ func TestGetDestinationGroup(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/destination-groups/dg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/dg-1/")
+		if r.URL.Path != "/api/v1/destination-groups/dg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/dg-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -129,8 +130,8 @@ func TestGetDestinationGroupByName(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/destination-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/")
+		if r.URL.Path != "/api/v1/destination-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/")
 		}
 		if r.URL.Query().Get("name") != "my-dg" {
 			t.Errorf("name query = %q, want %q", r.URL.Query().Get("name"), "my-dg")
@@ -174,14 +175,38 @@ func TestGetDestinationGroupByName_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetDestinationGroupByName_QueryEscaped(t *testing.T) {
+	name := "my/group name"
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "name="+url.QueryEscape(name) {
+			t.Errorf("raw query = %q, want %q", r.URL.RawQuery, "name="+url.QueryEscape(name))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{
+			"id": "dg-1",
+			"service": "svc",
+			"name": "my/group name",
+			"key_prefix": "",
+			"created_at": "2024-01-01T00:00:00Z",
+			"updated_at": "2024-01-01T00:00:00Z",
+			"destinations": ["dc-1"]
+		}]`))
+	}
+	client, _ := newTestClient(t, handler)
+	_, err := client.GetDestinationGroupByName(context.Background(), name)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUpdateDestinationGroup(t *testing.T) {
 	var gotBody []byte
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/destination-groups/dg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/dg-1/")
+		if r.URL.Path != "/api/v1/destination-groups/dg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/dg-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -225,8 +250,8 @@ func TestDeleteDestinationGroup(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/destination-groups/dg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/destination-groups/dg-1/")
+		if r.URL.Path != "/api/v1/destination-groups/dg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/destination-groups/dg-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

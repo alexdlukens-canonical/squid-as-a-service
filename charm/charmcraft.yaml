@@ -28,6 +28,18 @@ config:
       type: string
       default: ""
       description: Extra Squid configuration lines appended to the generated config.
+    squid-prepend-config:
+      type: string
+      default: ""
+      description: Raw Squid configuration lines inserted before the generated Source ACLs section.
+    squid-append-config:
+      type: string
+      default: ""
+      description: Raw Squid configuration lines inserted after the ACL Rules section and before the default deny.
+    squid-default-deny:
+      type: boolean
+      default: true
+      description: When true, append "http_access deny all" as the final rule (default deny). Set to false to omit it.
 
 actions:
   create-key:
@@ -55,6 +67,25 @@ actions:
     description: List all API keys (name, prefix, created, revoked status).
   reconfigure:
     description: Manually trigger Squid config re-render and reload on this unit.
+  createsuperuser:
+    description: Create a Django superuser for admin UI access
+    params:
+      username:
+        type: string
+        description: Username for the superuser
+      email:
+        type: string
+        description: Email address for the superuser
+        default: admin@example.com
+    required: [username]
+    output:
+      properties:
+        result:
+          type: string
+          description: Status message
+        password:
+          type: string
+          description: Auto-generated password for the new superuser
 
 requires:
   database:
@@ -63,6 +94,10 @@ requires:
   cos-agent:
     interface: cos_agent
     optional: true
+
+charm-libs:
+  - lib: data_platform_libs.data_interfaces
+    version: "0"
 
 parts:
   charm:

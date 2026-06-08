@@ -1,17 +1,16 @@
-"""Django settings for terrasquid project.
-"""
+"""Django settings for the Terrasquid project."""
+
 import os
-from pathlib import Path
 
 import dj_database_url
 
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "dev-secret-key-change-me")
+SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-only-change-in-production")
 
-DEBUG = os.environ.get("DJANGO_DEBUG", "false").lower() == "true"
+DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = os.environ.get("ALLOWED_HOSTS", "*").split(",")
 
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -20,7 +19,6 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
-    "django.contrib.postgres",
     "rest_framework",
     "rest_framework_api_key",
     "drf_spectacular",
@@ -29,6 +27,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -41,16 +40,8 @@ ROOT_URLCONF = "terrasquid.urls"
 
 TEMPLATES = [
     {
-        "BACKEND": "django.template.backends.jinja2.Jinja2",
-        "DIRS": [BASE_DIR / "templates"],
-        "APP_DIRS": False,
-        "OPTIONS": {
-            "environment": "terrasquid.settings.jinja2_environment",
-        },
-    },
-    {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [],
+        "DIRS": [os.path.join(BASE_DIR, "templates")],
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -65,13 +56,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = "terrasquid.wsgi.application"
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "sqlite:///:memory:",
-)
+_default_db = "sqlite:///{}".format(os.path.join(BASE_DIR, "db.sqlite3"))
 DATABASES = {
     "default": dj_database_url.parse(
-        DATABASE_URL,
+        os.environ.get("DATABASE_URL", _default_db),
         conn_max_age=600,
     )
 }
@@ -88,36 +76,34 @@ TIME_ZONE = "UTC"
 USE_I18N = True
 USE_TZ = True
 
-STATIC_URL = "static/"
+STATIC_URL = "/static/"
+STATIC_ROOT = os.path.join(BASE_DIR, "staticfiles")
+STATICFILES_STORAGE = "whitenoise.storage.CompressedManifestStaticFilesStorage"
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 REST_FRAMEWORK = {
-    "DEFAULT_PERMISSION_CLASSES": [
-        "rest_framework_api_key.permissions.HasAPIKey",
-    ],
     "DEFAULT_AUTHENTICATION_CLASSES": [],
+    "DEFAULT_PERMISSION_CLASSES": ["rest_framework_api_key.permissions.HasAPIKey"],
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
-    "DEFAULT_RENDERER_CLASSES": [
-        "rest_framework.renderers.JSONRenderer",
-    ],
-    "DEFAULT_PAGINATION_CLASS": "rest_framework.pagination.PageNumberPagination",
-    "PAGE_SIZE": 100,
 }
 
 SPECTACULAR_SETTINGS = {
     "TITLE": "Terrasquid API",
     "DESCRIPTION": "REST API for the Terrasquid (Squid-as-a-Service) charm.",
     "VERSION": "1.0.0",
-    "SERVE_INCLUDE_SCHEMA": False,
 }
 
-API_KEY_CUSTOM_HEADER = "HTTP_AUTHORIZATION"
+JUJU_UNIT_NAME = os.environ.get("JUJU_UNIT_NAME", "squid-as-a-service/0")
 
+TERRASQUID_STATUS_FILE = os.environ.get(
+    "TERRASQUID_STATUS_FILE",
+    "/var/lib/terrasquid/status.json",
+)
 
-def jinja2_environment(**options):
-    """Create a Jinja2 environment for Django template rendering."""
-    from jinja2 import Environment
-
-    env = Environment(**options)
-    return env
+SQUID_PORT = int(os.environ.get("SQUID_PORT", "3128"))
+SQUID_PREPEND_CONFIG = os.environ.get("SQUID_PREPEND_CONFIG", "")
+SQUID_APPEND_CONFIG = os.environ.get("SQUID_APPEND_CONFIG", "")
+SQUID_DEFAULT_DENY = os.environ.get("SQUID_DEFAULT_DENY", "True").lower() not in ("false", "0", "")
+SQUID_CONF_PATH = os.environ.get("SQUID_CONF_PATH", "/etc/squid/squid.conf")
+SQUID_BINARY = os.environ.get("SQUID_BINARY", "/usr/sbin/squid")

@@ -9,7 +9,7 @@ import (
 )
 
 func (c *APIClient) ListACLRules(ctx context.Context) ([]model.ACLRule, error) {
-	resp, err := c.doRequest("GET", "/acl-rules/", nil)
+	resp, err := c.doRequest("GET", "/api/v1/acl-rules/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -21,7 +21,7 @@ func (c *APIClient) ListACLRules(ctx context.Context) ([]model.ACLRule, error) {
 }
 
 func (c *APIClient) CreateACLRule(ctx context.Context, input model.ACLRuleInput) (*model.ACLRule, error) {
-	resp, err := c.doRequest("POST", "/acl-rules/", input)
+	resp, err := c.doRequest("POST", "/api/v1/acl-rules/", input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -33,7 +33,7 @@ func (c *APIClient) CreateACLRule(ctx context.Context, input model.ACLRuleInput)
 }
 
 func (c *APIClient) GetACLRule(ctx context.Context, id string) (*model.ACLRule, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/acl-rules/%s/", id), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/acl-rules/%s/", id), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -45,7 +45,7 @@ func (c *APIClient) GetACLRule(ctx context.Context, id string) (*model.ACLRule, 
 }
 
 func (c *APIClient) UpdateACLRule(ctx context.Context, id string, input model.ACLRuleInput) (*model.ACLRule, error) {
-	resp, err := c.doRequest("PUT", fmt.Sprintf("/acl-rules/%s/", id), input)
+	resp, err := c.doRequest("PUT", fmt.Sprintf("/api/v1/acl-rules/%s/", id), input)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
@@ -57,7 +57,7 @@ func (c *APIClient) UpdateACLRule(ctx context.Context, id string, input model.AC
 }
 
 func (c *APIClient) DeleteACLRule(ctx context.Context, id string) error {
-	resp, err := c.doRequest("DELETE", fmt.Sprintf("/acl-rules/%s/", id), nil)
+	resp, err := c.doRequest("DELETE", fmt.Sprintf("/api/v1/acl-rules/%s/", id), nil)
 	if err != nil {
 		return fmt.Errorf("request failed: %w", err)
 	}
