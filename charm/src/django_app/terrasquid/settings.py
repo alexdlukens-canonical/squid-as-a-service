@@ -102,5 +102,8 @@ TERRASQUID_STATUS_FILE = os.environ.get(
 )
 
 SQUID_PORT = int(os.environ.get("SQUID_PORT", "3128"))
+SQUID_PREPEND_CONFIG = os.environ.get("SQUID_PREPEND_CONFIG", "")
+SQUID_APPEND_CONFIG = os.environ.get("SQUID_APPEND_CONFIG", "")
+SQUID_DEFAULT_DENY = os.environ.get("SQUID_DEFAULT_DENY", "True").lower() not in ("false", "0", "")
 SQUID_CONF_PATH = os.environ.get("SQUID_CONF_PATH", "/etc/squid/squid.conf")
 SQUID_BINARY = os.environ.get("SQUID_BINARY", "/usr/sbin/squid")

@@ -5,6 +5,9 @@
 http_port {{ squid_port }}
 coredump_dir /var/spool/squid
 
+{% if squid_prepend_config %}
+{{ squid_prepend_config }}
+{% endif %}
 # ======= Source ACLs =======
 {% for src in source_acls %}
 acl src__{{ src.service }}__{{ src.name }} src {{ src.cidr | join(' ') }}
@@ -61,5 +64,10 @@ http_access allow {{ src_acl }} {{ dst_acl }}
 {% endif %}
 {% endfor %}
 
+{% if squid_append_config %}
+{{ squid_append_config }}
+{% endif %}
 # Default deny
+{% if squid_default_deny %}
 http_access deny all
+{% endif %}

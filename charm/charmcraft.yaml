@@ -28,6 +28,18 @@ config:
       type: string
       default: ""
       description: Extra Squid configuration lines appended to the generated config.
+    squid-prepend-config:
+      type: string
+      default: ""
+      description: Raw Squid configuration lines inserted before the generated Source ACLs section.
+    squid-append-config:
+      type: string
+      default: ""
+      description: Raw Squid configuration lines inserted after the ACL Rules section and before the default deny.
+    squid-default-deny:
+      type: boolean
+      default: true
+      description: When true, append "http_access deny all" as the final rule (default deny). Set to false to omit it.
 
 actions:
   create-key:

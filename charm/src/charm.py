@@ -224,6 +224,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
         db_url = self._database_url()
         secret_key = self._get_or_generate_secret_key()
         squid_port = self.config.get("squid-port", 3128)
+        squid_prepend_config = self.config.get("squid-prepend-config", "")
+        squid_append_config = self.config.get("squid-append-config", "")
+        squid_default_deny = self.config.get("squid-default-deny", True)
         content = textwrap.dedent(f"""\
             DATABASE_URL={db_url}
             SECRET_KEY={secret_key}
@@ -231,6 +234,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
             DJANGO_SETTINGS_MODULE=terrasquid.settings
             JUJU_UNIT_NAME={self.unit.name}
             SQUID_PORT={squid_port}
+            SQUID_PREPEND_CONFIG={squid_prepend_config}
+            SQUID_APPEND_CONFIG={squid_append_config}
+            SQUID_DEFAULT_DENY={squid_default_deny}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)

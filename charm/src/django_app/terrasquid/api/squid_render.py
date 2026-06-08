@@ -34,6 +34,9 @@ def render_squid_config(version: int | None = None) -> str:
     return template.render(
         squid_port=settings.SQUID_PORT,
         version=version,
+        squid_prepend_config=settings.SQUID_PREPEND_CONFIG,
+        squid_append_config=settings.SQUID_APPEND_CONFIG,
+        squid_default_deny=settings.SQUID_DEFAULT_DENY,
         source_acls=list(SourceACL.objects.order_by("service", "name")),
         source_groups=list(SourceGroup.objects.prefetch_related("sources").order_by("service", "name")),
         destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").order_by("service", "name")),
