@@ -124,6 +124,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
             self._reload_gunicorn()
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
+        if self.model.relations.get("certificates") and not self.config.get("external-hostname"):
+            event.add_status(ops.BlockedStatus("external-hostname config required when certificates relation is configured"))
+            return
         if not self._database_url():
             event.add_status(ops.WaitingStatus("Waiting for database relation"))
             return
@@ -185,6 +188,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _request_certificate(self) -> None:
         """Generate a CSR and request a certificate."""
         if not self.model.relations.get("certificates"):
+            return
+        if not self.config.get("external-hostname"):
             return
 
         private_key = self._get_or_generate_private_key()
