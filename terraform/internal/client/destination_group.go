@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/terrasquid/terraform-provider-terrasquid/internal/model"
 )
@@ -45,7 +46,7 @@ func (c *APIClient) GetDestinationGroup(ctx context.Context, id string) (*model.
 }
 
 func (c *APIClient) GetDestinationGroupByName(ctx context.Context, name string) (*model.DestinationGroup, error) {
-	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/destination-groups/?name=%s", name), nil)
+	resp, err := c.doRequest("GET", fmt.Sprintf("/api/v1/destination-groups/?name=%s", url.QueryEscape(name)), nil)
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,8 +17,8 @@ func TestListSourceGroups(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/source-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/")
+		if r.URL.Path != "/api/v1/source-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`[
@@ -55,8 +56,8 @@ func TestCreateSourceGroup(t *testing.T) {
 		if r.Method != "POST" {
 			t.Errorf("method = %q, want %q", r.Method, "POST")
 		}
-		if r.URL.Path != "/source-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/")
+		if r.URL.Path != "/api/v1/source-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -100,8 +101,8 @@ func TestGetSourceGroup(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/source-groups/sg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/sg-1/")
+		if r.URL.Path != "/api/v1/source-groups/sg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/sg-1/")
 		}
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{
@@ -129,8 +130,8 @@ func TestGetSourceGroupByName(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/source-groups/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/")
+		if r.URL.Path != "/api/v1/source-groups/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/")
 		}
 		if r.URL.Query().Get("name") != "my-group" {
 			t.Errorf("name query = %q, want %q", r.URL.Query().Get("name"), "my-group")
@@ -174,14 +175,38 @@ func TestGetSourceGroupByName_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetSourceGroupByName_QueryEscaped(t *testing.T) {
+	name := "my/group name"
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.RawQuery != "name="+url.QueryEscape(name) {
+			t.Errorf("raw query = %q, want %q", r.URL.RawQuery, "name="+url.QueryEscape(name))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`[{
+			"id": "sg-1",
+			"service": "svc",
+			"name": "my/group name",
+			"key_prefix": "",
+			"created_at": "2024-01-01T00:00:00Z",
+			"updated_at": "2024-01-01T00:00:00Z",
+			"sources": ["src-1"]
+		}]`))
+	}
+	client, _ := newTestClient(t, handler)
+	_, err := client.GetSourceGroupByName(context.Background(), name)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestUpdateSourceGroup(t *testing.T) {
 	var gotBody []byte
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PUT" {
 			t.Errorf("method = %q, want %q", r.Method, "PUT")
 		}
-		if r.URL.Path != "/source-groups/sg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/sg-1/")
+		if r.URL.Path != "/api/v1/source-groups/sg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/sg-1/")
 		}
 		var err error
 		gotBody, err = io.ReadAll(r.Body)
@@ -225,8 +250,8 @@ func TestDeleteSourceGroup(t *testing.T) {
 		if r.Method != "DELETE" {
 			t.Errorf("method = %q, want %q", r.Method, "DELETE")
 		}
-		if r.URL.Path != "/source-groups/sg-1/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/source-groups/sg-1/")
+		if r.URL.Path != "/api/v1/source-groups/sg-1/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/source-groups/sg-1/")
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}

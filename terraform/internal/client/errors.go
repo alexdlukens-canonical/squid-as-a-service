@@ -29,3 +29,10 @@ func IsUnauthorizedError(err error) bool {
 	}
 	return false
 }
+
+func IsConflictError(err error) bool {
+	if apiErr, ok := err.(*APIError); ok {
+		return apiErr.StatusCode == 409
+	}
+	return false
+}

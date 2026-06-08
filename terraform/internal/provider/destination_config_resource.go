@@ -11,6 +11,8 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/schema/validator"
 	"github.com/hashicorp/terraform-plugin-framework/types"
 	"github.com/terrasquid/terraform-provider-terrasquid/internal/client"
@@ -49,6 +51,9 @@ func (r *DestinationConfigResource) Schema(_ context.Context, _ resource.SchemaR
 		Attributes: map[string]schema.Attribute{
 			"id": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"name": schema.StringAttribute{
 				Required: true,
@@ -82,6 +87,9 @@ func (r *DestinationConfigResource) Schema(_ context.Context, _ resource.SchemaR
 			},
 			"created_at": schema.StringAttribute{
 				Computed: true,
+				PlanModifiers: []planmodifier.String{
+					stringplanmodifier.UseStateForUnknown(),
+				},
 			},
 			"updated_at": schema.StringAttribute{
 				Computed: true,
@@ -120,7 +128,7 @@ func (r *DestinationConfigResource) Create(ctx context.Context, req resource.Cre
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		input.Ports = int64SliceToIntSlice(portsInt64)
+		input.Ports = int64SliceToIntSlice(sortInt64Slice(portsInt64))
 	}
 
 	if !plan.PortGroups.IsNull() {
@@ -147,7 +155,7 @@ func (r *DestinationConfigResource) Create(ctx context.Context, req resource.Cre
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, result.Ports)
+	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, sortIntSlice(result.Ports))
 	resp.Diagnostics.Append(diags...)
 	plan.Ports = portsList
 
@@ -184,7 +192,7 @@ func (r *DestinationConfigResource) Read(ctx context.Context, req resource.ReadR
 	state.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	state.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsList, diags := destinationConfigIntListValue(ctx, state.Ports, result.Ports)
+	portsList, diags := destinationConfigIntListValue(ctx, state.Ports, sortIntSlice(result.Ports))
 	resp.Diagnostics.Append(diags...)
 	state.Ports = portsList
 
@@ -197,7 +205,9 @@ func (r *DestinationConfigResource) Read(ctx context.Context, req resource.ReadR
 
 func (r *DestinationConfigResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan DestinationConfigResourceModel
+	var state DestinationConfigResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -214,7 +224,7 @@ func (r *DestinationConfigResource) Update(ctx context.Context, req resource.Upd
 		if resp.Diagnostics.HasError() {
 			return
 		}
-		input.Ports = int64SliceToIntSlice(portsInt64)
+		input.Ports = int64SliceToIntSlice(sortInt64Slice(portsInt64))
 	}
 
 	if !plan.PortGroups.IsNull() {
@@ -226,7 +236,11 @@ func (r *DestinationConfigResource) Update(ctx context.Context, req resource.Upd
 		input.PortGroups = portGroupsSlice
 	}
 
-	result, err := r.client.UpdateDestinationConfig(ctx, plan.ID.ValueString(), input)
+	id := plan.ID.ValueString()
+	if id == "" {
+		id = state.ID.ValueString()
+	}
+	result, err := r.client.UpdateDestinationConfig(ctx, id, input)
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to update destination config: %s", err))
 		return
@@ -241,7 +255,7 @@ func (r *DestinationConfigResource) Update(ctx context.Context, req resource.Upd
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, result.Ports)
+	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, sortIntSlice(result.Ports))
 	resp.Diagnostics.Append(diags...)
 	plan.Ports = portsList
 
@@ -262,6 +276,10 @@ func (r *DestinationConfigResource) Delete(ctx context.Context, req resource.Del
 	err := r.client.DeleteDestinationConfig(ctx, state.ID.ValueString())
 	if err != nil {
 		if client.IsNotFoundError(err) {
+			return
+		}
+		if client.IsConflictError(err) {
+			resp.Diagnostics.AddError("Resource In Use", fmt.Sprintf("Cannot delete destination config %q because it is referenced by other resources: %s", state.ID.ValueString(), err))
 			return
 		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to delete destination config: %s", err))

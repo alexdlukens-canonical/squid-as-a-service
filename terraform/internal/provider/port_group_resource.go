@@ -99,7 +99,7 @@ func (r *PortGroupResource) Create(ctx context.Context, req resource.CreateReque
 
 	result, err := r.client.CreatePortGroup(ctx, model.PortGroupInput{
 		Name:  plan.Name.ValueString(),
-		Ports: int64SliceToIntSlice(portsInt64),
+		Ports: int64SliceToIntSlice(sortInt64Slice(portsInt64)),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to create port group: %s", err))
@@ -113,7 +113,7 @@ func (r *PortGroupResource) Create(ctx context.Context, req resource.CreateReque
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsInt64Result := intSliceToInt64Slice(result.Ports)
+	portsInt64Result := intSliceToInt64Slice(sortIntSlice(result.Ports))
 	portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64Result)
 	resp.Diagnostics.Append(diags...)
 	plan.Ports = portsList
@@ -145,7 +145,7 @@ func (r *PortGroupResource) Read(ctx context.Context, req resource.ReadRequest, 
 	state.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	state.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsInt64 := intSliceToInt64Slice(result.Ports)
+	portsInt64 := intSliceToInt64Slice(sortIntSlice(result.Ports))
 	portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64)
 	resp.Diagnostics.Append(diags...)
 	state.Ports = portsList
@@ -168,7 +168,7 @@ func (r *PortGroupResource) Update(ctx context.Context, req resource.UpdateReque
 
 	result, err := r.client.UpdatePortGroup(ctx, plan.ID.ValueString(), model.PortGroupInput{
 		Name:  plan.Name.ValueString(),
-		Ports: int64SliceToIntSlice(portsInt64),
+		Ports: int64SliceToIntSlice(sortInt64Slice(portsInt64)),
 	})
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to update port group: %s", err))
@@ -182,7 +182,7 @@ func (r *PortGroupResource) Update(ctx context.Context, req resource.UpdateReque
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	portsInt64Result := intSliceToInt64Slice(result.Ports)
+	portsInt64Result := intSliceToInt64Slice(sortIntSlice(result.Ports))
 	portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64Result)
 	resp.Diagnostics.Append(diags...)
 	plan.Ports = portsList
@@ -200,6 +200,10 @@ func (r *PortGroupResource) Delete(ctx context.Context, req resource.DeleteReque
 	err := r.client.DeletePortGroup(ctx, state.ID.ValueString())
 	if err != nil {
 		if client.IsNotFoundError(err) {
+			return
+		}
+		if client.IsConflictError(err) {
+			resp.Diagnostics.AddError("Resource In Use", fmt.Sprintf("Cannot delete port group %q because it is referenced by other resources: %s", state.ID.ValueString(), err))
 			return
 		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to delete port group: %s", err))

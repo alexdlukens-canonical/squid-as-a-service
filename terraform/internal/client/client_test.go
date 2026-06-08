@@ -135,7 +135,7 @@ func TestDoUnauthenticatedRequest(t *testing.T) {
 		_, _ = w.Write([]byte(`{"status":"ok"}`))
 	}
 	client, _ := newTestClient(t, handler)
-	resp, err := client.doUnauthenticatedRequest("GET", "/status/")
+	resp, err := client.doUnauthenticatedRequest("GET", "/api/v1/status/")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -144,8 +144,8 @@ func TestDoUnauthenticatedRequest(t *testing.T) {
 	if gotMethod != "GET" {
 		t.Errorf("method = %q, want %q", gotMethod, "GET")
 	}
-	if gotPath != "/status/" {
-		t.Errorf("path = %q, want %q", gotPath, "/status/")
+	if gotPath != "/api/v1/status/" {
+		t.Errorf("path = %q, want %q", gotPath, "/api/v1/status/")
 	}
 	if gotAuth != "" {
 		t.Errorf("Authorization = %q, want empty", gotAuth)
@@ -289,6 +289,9 @@ func TestIsRetryableStatus(t *testing.T) {
 	}
 	if !isRetryableStatus(599) {
 		t.Error("expected 599 to be retryable")
+	}
+	if !isRetryableStatus(429) {
+		t.Error("expected 429 to be retryable")
 	}
 	if isRetryableStatus(499) {
 		t.Error("expected 499 to not be retryable")

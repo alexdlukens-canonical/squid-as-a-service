@@ -199,6 +199,10 @@ func (r *SourceACLResource) Delete(ctx context.Context, req resource.DeleteReque
 		if client.IsNotFoundError(err) {
 			return
 		}
+		if client.IsConflictError(err) {
+			resp.Diagnostics.AddError("Resource In Use", fmt.Sprintf("Cannot delete source ACL %q because it is referenced by other resources: %s", state.ID.ValueString(), err))
+			return
+		}
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to delete source ACL: %s", err))
 		return
 	}

@@ -11,8 +11,8 @@ func TestGetStatus_Success(t *testing.T) {
 		if r.Method != "GET" {
 			t.Errorf("method = %q, want %q", r.Method, "GET")
 		}
-		if r.URL.Path != "/status/" {
-			t.Errorf("path = %q, want %q", r.URL.Path, "/status/")
+		if r.URL.Path != "/api/v1/status/" {
+			t.Errorf("path = %q, want %q", r.URL.Path, "/api/v1/status/")
 		}
 		if r.Header.Get("Authorization") != "" {
 			t.Errorf("Authorization = %q, want empty", r.Header.Get("Authorization"))
@@ -72,5 +72,22 @@ func TestGetStatus_RequestFailure(t *testing.T) {
 	_, err := client.GetStatus(context.Background())
 	if err == nil {
 		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestGetStatus_EmptyBodySuccess(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}
+	client, _ := newTestClient(t, handler)
+	status, err := client.GetStatus(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if status == nil {
+		t.Fatal("status is nil")
+	}
+	if status.DBConfigVersion != 0 || status.AppliedConfigVersion != 0 {
+		t.Fatalf("unexpected non-zero status: %+v", status)
 	}
 }

@@ -100,9 +100,6 @@ func (r *ACLRuleResource) Schema(_ context.Context, _ resource.SchemaRequest, re
 			},
 			"updated_at": schema.StringAttribute{
 				Computed: true,
-				PlanModifiers: []planmodifier.String{
-					stringplanmodifier.UseStateForUnknown(),
-				},
 			},
 		},
 	}
@@ -190,7 +187,9 @@ func (r *ACLRuleResource) Read(ctx context.Context, req resource.ReadRequest, re
 
 func (r *ACLRuleResource) Update(ctx context.Context, req resource.UpdateRequest, resp *resource.UpdateResponse) {
 	var plan ACLRuleResourceModel
+	var state ACLRuleResourceModel
 	resp.Diagnostics.Append(req.Plan.Get(ctx, &plan)...)
+	resp.Diagnostics.Append(req.State.Get(ctx, &state)...)
 	if resp.Diagnostics.HasError() {
 		return
 	}
@@ -204,7 +203,11 @@ func (r *ACLRuleResource) Update(ctx context.Context, req resource.UpdateRequest
 		DstGroup: stringPtr(plan.DstGroup),
 	}
 
-	result, err := r.client.UpdateACLRule(ctx, plan.ID.ValueString(), input)
+	id := plan.ID.ValueString()
+	if id == "" {
+		id = state.ID.ValueString()
+	}
+	result, err := r.client.UpdateACLRule(ctx, id, input)
 	if err != nil {
 		resp.Diagnostics.AddError("API Error", fmt.Sprintf("Failed to update ACL rule: %s", err))
 		return
