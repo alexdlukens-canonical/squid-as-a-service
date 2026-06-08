@@ -127,6 +127,7 @@ func (r *ACLRuleResource) Create(ctx context.Context, req resource.CreateRequest
 	}
 
 	input := model.ACLRuleInput{
+		Name:     plan.Name.ValueString(),
 		Priority: int(plan.Priority.ValueInt64()),
 		Src:      stringPtr(plan.Src),
 		SrcGroup: stringPtr(plan.SrcGroup),
@@ -195,6 +196,7 @@ func (r *ACLRuleResource) Update(ctx context.Context, req resource.UpdateRequest
 	}
 
 	input := model.ACLRuleInput{
+		Name:     plan.Name.ValueString(),
 		Priority: int(plan.Priority.ValueInt64()),
 		Src:      stringPtr(plan.Src),
 		SrcGroup: stringPtr(plan.SrcGroup),

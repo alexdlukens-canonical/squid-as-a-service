@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hashicorp/terraform-plugin-framework-validators/stringvalidator"
+	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
@@ -146,22 +147,13 @@ func (r *DestinationConfigResource) Create(ctx context.Context, req resource.Cre
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	if result.Ports == nil {
-		plan.Ports = types.ListNull(types.Int64Type)
-	} else {
-		portsInt64 := intSliceToInt64Slice(result.Ports)
-		portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64)
-		resp.Diagnostics.Append(diags...)
-		plan.Ports = portsList
-	}
+	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, result.Ports)
+	resp.Diagnostics.Append(diags...)
+	plan.Ports = portsList
 
-	if result.PortGroups == nil {
-		plan.PortGroups = types.ListNull(types.StringType)
-	} else {
-		portGroupsList, diags := types.ListValueFrom(ctx, types.StringType, result.PortGroups)
-		resp.Diagnostics.Append(diags...)
-		plan.PortGroups = portGroupsList
-	}
+	portGroupsList, diags := destinationConfigStringListValue(ctx, plan.PortGroups, result.PortGroups)
+	resp.Diagnostics.Append(diags...)
+	plan.PortGroups = portGroupsList
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -192,22 +184,13 @@ func (r *DestinationConfigResource) Read(ctx context.Context, req resource.ReadR
 	state.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	state.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	if result.Ports == nil {
-		state.Ports = types.ListNull(types.Int64Type)
-	} else {
-		portsInt64 := intSliceToInt64Slice(result.Ports)
-		portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64)
-		resp.Diagnostics.Append(diags...)
-		state.Ports = portsList
-	}
+	portsList, diags := destinationConfigIntListValue(ctx, state.Ports, result.Ports)
+	resp.Diagnostics.Append(diags...)
+	state.Ports = portsList
 
-	if result.PortGroups == nil {
-		state.PortGroups = types.ListNull(types.StringType)
-	} else {
-		portGroupsList, diags := types.ListValueFrom(ctx, types.StringType, result.PortGroups)
-		resp.Diagnostics.Append(diags...)
-		state.PortGroups = portGroupsList
-	}
+	portGroupsList, diags := destinationConfigStringListValue(ctx, state.PortGroups, result.PortGroups)
+	resp.Diagnostics.Append(diags...)
+	state.PortGroups = portGroupsList
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 }
@@ -258,22 +241,13 @@ func (r *DestinationConfigResource) Update(ctx context.Context, req resource.Upd
 	plan.CreatedAt = types.StringValue(result.CreatedAt.Format(time.RFC3339))
 	plan.UpdatedAt = types.StringValue(result.UpdatedAt.Format(time.RFC3339))
 
-	if result.Ports == nil {
-		plan.Ports = types.ListNull(types.Int64Type)
-	} else {
-		portsInt64 := intSliceToInt64Slice(result.Ports)
-		portsList, diags := types.ListValueFrom(ctx, types.Int64Type, portsInt64)
-		resp.Diagnostics.Append(diags...)
-		plan.Ports = portsList
-	}
+	portsList, diags := destinationConfigIntListValue(ctx, plan.Ports, result.Ports)
+	resp.Diagnostics.Append(diags...)
+	plan.Ports = portsList
 
-	if result.PortGroups == nil {
-		plan.PortGroups = types.ListNull(types.StringType)
-	} else {
-		portGroupsList, diags := types.ListValueFrom(ctx, types.StringType, result.PortGroups)
-		resp.Diagnostics.Append(diags...)
-		plan.PortGroups = portGroupsList
-	}
+	portGroupsList, diags := destinationConfigStringListValue(ctx, plan.PortGroups, result.PortGroups)
+	resp.Diagnostics.Append(diags...)
+	plan.PortGroups = portGroupsList
 
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
@@ -297,4 +271,18 @@ func (r *DestinationConfigResource) Delete(ctx context.Context, req resource.Del
 
 func (r *DestinationConfigResource) ImportState(ctx context.Context, req resource.ImportStateRequest, resp *resource.ImportStateResponse) {
 	resource.ImportStatePassthroughID(ctx, path.Root("id"), req, resp)
+}
+
+func destinationConfigIntListValue(ctx context.Context, current types.List, values []int) (types.List, diag.Diagnostics) {
+	if len(values) == 0 && current.IsNull() {
+		return types.ListNull(types.Int64Type), nil
+	}
+	return types.ListValueFrom(ctx, types.Int64Type, intSliceToInt64Slice(values))
+}
+
+func destinationConfigStringListValue(ctx context.Context, current types.List, values []string) (types.List, diag.Diagnostics) {
+	if len(values) == 0 && current.IsNull() {
+		return types.ListNull(types.StringType), nil
+	}
+	return types.ListValueFrom(ctx, types.StringType, values)
 }
