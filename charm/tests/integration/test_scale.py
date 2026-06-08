@@ -121,16 +121,17 @@ def _read_unit_squid_conf(model: str) -> str:
 
 
 def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_charms):
-    """Creating 1000 source ACLs must produce a Squid config on disk that exactly
-    matches the rendered config stored in the database.
+    """Create 1000 source ACLs and verify Squid config determinism.
 
     The test uses its own isolated Juju model (via the juju_model_deployed fixture) so
     that no resources from parallel test modules affect the generated file.
     """
+    _ = deploy_charms
     address = _unit_address(juju_model_deployed)
     base = _api_url(address)
     key = _create_api_key(juju_model_deployed, "scale-test")
     headers = {"Authorization": f"Api-Key {key}"}
+    created_source_ids: list[str] = []
 
     try:
         for i in range(SOURCE_COUNT):
@@ -144,6 +145,7 @@ def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_char
             assert resp.status_code in (200, 201), (
                 f"Unexpected status {resp.status_code} creating source {i}: {resp.text}"
             )
+            created_source_ids.append(resp.json()["id"])
 
         final_status = requests.get(f"{base}/status/", timeout=10).json()
         db_version = final_status["db_config_version"]
@@ -163,9 +165,12 @@ def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_char
 
     finally:
         # Clean up the created sources so they don't affect other tests or future runs.
-        for i in range(SOURCE_COUNT):
-            requests.delete(f"{base}/sources/src-{i:04d}/", headers=headers, timeout=10)
-        _wait_config_applied(address, expected_version=db_version + SOURCE_COUNT)
+        for source_id in created_source_ids:
+            requests.delete(f"{base}/sources/{source_id}/", headers=headers, timeout=10)
+
+        # Wait for the post-delete db version rather than assuming every delete applied.
+        final_status = requests.get(f"{base}/status/", timeout=10).json()
+        _wait_config_applied(address, expected_version=final_status["db_config_version"])
 
         # ensure there are no leftover sources in the database
         resp = requests.get(f"{base}/sources/", headers=headers, timeout=10)
@@ -175,21 +180,23 @@ def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_char
 
 
 def test_create_all_resources(juju_model_deployed, deploy_charms):
-    """Creating 200 of each resource type (sources, destinations, source groups,
-    destination groups, port groups, and rules) must produce a Squid config on
-    disk that exactly matches the rendered config stored in the database.
+    """Create all resource types at scale and verify Squid config determinism.
+
+    This creates 200 of each primary resource type plus extra ACL rule variants,
+    then verifies the rendered Squid config is stable across runs.
     """
+    _ = deploy_charms
     address = _unit_address(juju_model_deployed)
     base = _api_url(address)
     key = _create_api_key(juju_model_deployed, "all-resources-test")
     headers = {"Authorization": f"Api-Key {key}"}
 
     resource_count = 200
-    created_source_names = []
-    created_dest_names = []
-    created_source_group_names = []
-    created_dest_group_names = []
-    created_port_group_names = []
+    created_source_ids = []
+    created_dest_ids = []
+    created_source_group_ids = []
+    created_dest_group_ids = []
+    created_port_group_ids = []
     created_rule_ids = []
 
     try:
@@ -206,50 +213,8 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
             assert resp.status_code in (200, 201), (
                 f"Unexpected status {resp.status_code} creating source {i}: {resp.text}"
             )
-            created_source_names.append(name)
 
-        # Create 200 destinations
-        for i in range(resource_count):
-            name = f"dst-{i:03d}"
-            fqdn = f"dest{i}.example.com"
-            resp = requests.post(
-                f"{base}/destinations/",
-                json={"name": name, "fqdn": [fqdn]},
-                headers=headers,
-                timeout=15,
-            )
-            assert resp.status_code in (200, 201), (
-                f"Unexpected status {resp.status_code} creating destination {i}: {resp.text}"
-            )
-            created_dest_names.append(name)
-
-        # Create 200 source groups
-        for i in range(resource_count):
-            name = f"srcgrp-{i:03d}"
-            resp = requests.post(
-                f"{base}/source-groups/",
-                json={"name": name, "sources": [f"src-{i:03d}"]},
-                headers=headers,
-                timeout=15,
-            )
-            assert resp.status_code in (200, 201), (
-                f"Unexpected status {resp.status_code} creating source group {i}: {resp.text}"
-            )
-            created_source_group_names.append(name)
-
-        # Create 200 destination groups
-        for i in range(resource_count):
-            name = f"dstgrp-{i:03d}"
-            resp = requests.post(
-                f"{base}/destination-groups/",
-                json={"name": name, "destinations": [f"dst-{i:03d}"]},
-                headers=headers,
-                timeout=15,
-            )
-            assert resp.status_code in (200, 201), (
-                f"Unexpected status {resp.status_code} creating destination group {i}: {resp.text}"
-            )
-            created_dest_group_names.append(name)
+            created_source_ids.append(resp.json()["id"])
 
         # Create 200 port groups
         for i in range(resource_count):
@@ -264,20 +229,60 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
             assert resp.status_code in (200, 201), (
                 f"Unexpected status {resp.status_code} creating port group {i}: {resp.text}"
             )
-            created_port_group_names.append(name)
+            created_port_group_ids.append(resp.json()["id"])
+
+        # Create 200 destinations
+        for i in range(resource_count):
+            name = f"dst-{i:03d}"
+            fqdn = f"dest{i}.example.com"
+            resp = requests.post(
+                f"{base}/destinations/",
+                json={"name": name, "dst": fqdn, "type": "ALLOW"},
+                headers=headers,
+                timeout=15,
+            )
+            assert resp.status_code in (200, 201), (
+                f"Unexpected status {resp.status_code} creating destination {i}: {resp.text}"
+            )
+            created_dest_ids.append(resp.json()["id"])
+
+        # Create 200 source groups
+        for i in range(resource_count):
+            name = f"srcgrp-{i:03d}"
+            resp = requests.post(
+                f"{base}/source-groups/",
+                json={"name": name, "sources": [created_source_ids[i]]},
+                headers=headers,
+                timeout=15,
+            )
+            assert resp.status_code in (200, 201), (
+                f"Unexpected status {resp.status_code} creating source group {i}: {resp.text}"
+            )
+            created_source_group_ids.append(resp.json()["id"])
+
+        # Create 200 destination groups
+        for i in range(resource_count):
+            name = f"dstgrp-{i:03d}"
+            resp = requests.post(
+                f"{base}/destination-groups/",
+                json={"name": name, "destinations": [created_dest_ids[i]]},
+                headers=headers,
+                timeout=15,
+            )
+            assert resp.status_code in (200, 201), (
+                f"Unexpected status {resp.status_code} creating destination group {i}: {resp.text}"
+            )
+            created_dest_group_ids.append(resp.json()["id"])
 
         # Create 200 rules
         for i in range(resource_count):
             rule_name = f"rule-{i:03d}"
-            source_name = f"src-{i:03d}"
-            dest_name = f"dst-{i:03d}"
             resp = requests.post(
-                f"{base}/rules/",
+                f"{base}/acl-rules/",
                 json={
                     "name": rule_name,
-                    "sources": [source_name],
-                    "destinations": [dest_name],
-                    "access": "allow",
+                    "src": created_source_ids[i],
+                    "dst": created_dest_ids[i],
                 },
                 headers=headers,
                 timeout=15,
@@ -292,19 +297,12 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
         # Create some rules with groups as well
         for i in range(10):
             rule_name = f"rule-grp-{i:02d}"
-            source_group_name = f"srcgrp-{i:03d}"
-            dest_group_name = f"dstgrp-{i:03d}"
-            port_group_name = f"portgrp-{i:03d}"
             resp = requests.post(
-                f"{base}/rules/",
+                f"{base}/acl-rules/",
                 json={
                     "name": rule_name,
-                    "sources": [f"src-{i:03d}"],
-                    "destinations": [f"dst-{i:03d}"],
-                    "source_groups": [source_group_name],
-                    "destination_groups": [dest_group_name],
-                    "port_groups": [port_group_name],
-                    "access": "allow",
+                    "src_group": created_source_group_ids[i],
+                    "dst_group": created_dest_group_ids[i],
                 },
                 headers=headers,
                 timeout=15,
@@ -319,15 +317,13 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
         # Create some deny rules as well
         for i in range(10):
             rule_name = f"rule-deny-{i:02d}"
-            source_name = f"src-{(i + 10):03d}"
-            dest_name = f"dst-{(i + 10):03d}"
             resp = requests.post(
-                f"{base}/rules/",
+                f"{base}/acl-rules/",
                 json={
                     "name": rule_name,
-                    "sources": [source_name],
-                    "destinations": [dest_name],
-                    "access": "deny",
+                    "src": created_source_ids[i + 10],
+                    "dst": created_dest_ids[i + 10],
+                    "priority": 200,
                 },
                 headers=headers,
                 timeout=15,
@@ -360,27 +356,27 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
     finally:
         # Clean up all created rules
         for rule_id in created_rule_ids:
-            requests.delete(f"{base}/rules/{rule_id}/", headers=headers, timeout=10)
+            requests.delete(f"{base}/acl-rules/{rule_id}/", headers=headers, timeout=10)
 
         # Clean up all created port groups
-        for port_group_name in created_port_group_names:
-            requests.delete(f"{base}/port-groups/{port_group_name}/", headers=headers, timeout=10)
+        for port_group_id in created_port_group_ids:
+            requests.delete(f"{base}/port-groups/{port_group_id}/", headers=headers, timeout=10)
 
         # Clean up all created destination groups
-        for dest_group_name in created_dest_group_names:
-            requests.delete(f"{base}/destination-groups/{dest_group_name}/", headers=headers, timeout=10)
+        for dest_group_id in created_dest_group_ids:
+            requests.delete(f"{base}/destination-groups/{dest_group_id}/", headers=headers, timeout=10)
 
         # Clean up all created source groups
-        for source_group_name in created_source_group_names:
-            requests.delete(f"{base}/source-groups/{source_group_name}/", headers=headers, timeout=10)
+        for source_group_id in created_source_group_ids:
+            requests.delete(f"{base}/source-groups/{source_group_id}/", headers=headers, timeout=10)
 
         # Clean up all created destinations
-        for dest_name in created_dest_names:
-            requests.delete(f"{base}/destinations/{dest_name}/", headers=headers, timeout=10)
+        for dest_id in created_dest_ids:
+            requests.delete(f"{base}/destinations/{dest_id}/", headers=headers, timeout=10)
 
         # Clean up all created sources
-        for source_name in created_source_names:
-            requests.delete(f"{base}/sources/{source_name}/", headers=headers, timeout=10)
+        for source_id in created_source_ids:
+            requests.delete(f"{base}/sources/{source_id}/", headers=headers, timeout=10)
 
         # Wait for all deletions to be applied
         final_status = requests.get(f"{base}/status/", timeout=10).json()
@@ -419,7 +415,7 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
         port_groups = resp.json()
         assert len(port_groups) == 0, f"Expected all port groups to be deleted, but found {len(port_groups)} remaining"
 
-        resp = requests.get(f"{base}/rules/", headers=headers, timeout=10)
+        resp = requests.get(f"{base}/acl-rules/", headers=headers, timeout=10)
         assert resp.status_code == 200, f"Failed to list rules during cleanup: {resp.text}"
         rules = resp.json()
         assert len(rules) == 0, f"Expected all rules to be deleted, but found {len(rules)} remaining"
