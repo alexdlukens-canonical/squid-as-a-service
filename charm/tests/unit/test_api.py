@@ -287,9 +287,7 @@ class TestACLRuleEndpoints(TestCase):
         """ACL rule with both src and src_group should return 400."""
         from terrasquid.api.models import SourceGroup
 
-        grp = SourceGroup.objects.create(
-            service="test-service", name="grp", key_prefix="ab12cd34"
-        )
+        grp = SourceGroup.objects.create(service="test-service", name="grp", key_prefix="ab12cd34")
         response = self.client.post(
             "/api/v1/acl-rules/",
             {
@@ -320,9 +318,12 @@ class TestSquidConfigValidation(TestCase):
 
     def test_squid_validation_failure_returns_422(self) -> None:
         """When Squid config validation fails, the API returns 422 and rolls back."""
-        with patch("terrasquid.api.views.render_squid_config", return_value="bad config"), patch(
-            "terrasquid.api.views.validate_squid_config",
-            return_value=(False, "syntax error"),
+        with (
+            patch("terrasquid.api.views.render_squid_config", return_value="bad config"),
+            patch(
+                "terrasquid.api.views.validate_squid_config",
+                return_value=(False, "syntax error"),
+            ),
         ):
             response = self.client.post(
                 "/api/v1/sources/",
@@ -335,9 +336,12 @@ class TestSquidConfigValidation(TestCase):
         """On Squid validation failure, the resource must not remain in the database."""
         from terrasquid.api.models import SourceACL
 
-        with patch("terrasquid.api.views.render_squid_config", return_value="bad"), patch(
-            "terrasquid.api.views.validate_squid_config",
-            return_value=(False, "error"),
+        with (
+            patch("terrasquid.api.views.render_squid_config", return_value="bad"),
+            patch(
+                "terrasquid.api.views.validate_squid_config",
+                return_value=(False, "error"),
+            ),
         ):
             self.client.post(
                 "/api/v1/sources/",

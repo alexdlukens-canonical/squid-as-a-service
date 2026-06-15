@@ -7,7 +7,6 @@ These tests deploy a real Juju model with PostgreSQL and verify that:
 - Basic CRUD on SourceACL resources works through the live API.
 """
 
-
 import time
 
 import jubilant
@@ -42,9 +41,7 @@ def test_charm_reaches_active_status(juju, deployed_charms):
     status = juju.status()
     app_status = status.apps[deployed_charms["saas_app"]]
     unit_status = app_status.units[f"{deployed_charms['saas_app']}/0"]
-    assert unit_status.workload_status.current == "active", (
-        f"Expected active, got: {unit_status.workload_status}"
-    )
+    assert unit_status.workload_status.current == "active", f"Expected active, got: {unit_status.workload_status}"
 
 
 def test_status_endpoint_is_accessible(juju, deployed_charms):
@@ -146,9 +143,7 @@ def test_revoke_api_key_action(juju, deployed_charms):
     response = requests.get(f"{_api_url(address)}/sources/", headers=headers, timeout=10)
     assert response.status_code == 200
 
-    task = juju.run(
-        f"{deployed_charms['saas_app']}/0", "revoke-key", params={"name": "revoke-test"}
-    )
+    task = juju.run(f"{deployed_charms['saas_app']}/0", "revoke-key", params={"name": "revoke-test"})
     assert task.success, f"revoke-key failed: {task.results}"
 
     response_after = requests.get(f"{_api_url(address)}/sources/", headers=headers, timeout=10)
@@ -160,9 +155,7 @@ def test_rotate_api_key_action(juju, deployed_charms):
     address = _unit_address(juju, deployed_charms["saas_app"])
     old_key = _create_api_key(juju, deployed_charms["saas_app"], "rotate-test")
 
-    task = juju.run(
-        f"{deployed_charms['saas_app']}/0", "rotate-key", params={"name": "rotate-test"}
-    )
+    task = juju.run(f"{deployed_charms['saas_app']}/0", "rotate-key", params={"name": "rotate-test"})
     assert task.success
     new_key = task.results["key"]
     assert new_key != old_key
@@ -203,9 +196,7 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
         timeout=10,
         allow_redirects=False,
     )
-    assert r_before.status_code == 403, (
-        f"Expected Squid to deny before rules, got {r_before.status_code}"
-    )
+    assert r_before.status_code == 403, f"Expected Squid to deny before rules, got {r_before.status_code}"
 
     key = _create_api_key(juju, deployed_charms["saas_app"], "proxy-acl-test")
     headers = {"Authorization": f"Api-Key {key}"}
@@ -245,9 +236,7 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
         timeout=10,
         allow_redirects=False,
     )
-    assert r_after.status_code != 403, (
-        f"Expected Squid to allow after rules, got {r_after.status_code}"
-    )
+    assert r_after.status_code != 403, f"Expected Squid to allow after rules, got {r_after.status_code}"
 
 
 def test_source_acl_service_isolation(juju, deployed_charms):

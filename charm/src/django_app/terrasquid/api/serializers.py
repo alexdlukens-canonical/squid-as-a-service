@@ -37,9 +37,7 @@ class SourceACLSerializer(BaseResourceSerializer):
             try:
                 ipaddress.ip_network(entry, strict=False)
             except ValueError as exc:
-                raise serializers.ValidationError(
-                    f"'{entry}' is not a valid CIDR address."
-                ) from exc
+                raise serializers.ValidationError(f"'{entry}' is not a valid CIDR address.") from exc
         return value
 
 
@@ -179,13 +177,9 @@ class ACLRuleSerializer(BaseResourceSerializer):
         has_src = bool(data.get("src"))
         has_src_group = bool(data.get("src_group"))
         if has_src == has_src_group:
-            raise serializers.ValidationError(
-                {"src": "Exactly one of src or src_group must be provided."}
-            )
+            raise serializers.ValidationError({"src": "Exactly one of src or src_group must be provided."})
         has_dst = bool(data.get("dst"))
         has_dst_group = bool(data.get("dst_group"))
         if has_dst == has_dst_group:
-            raise serializers.ValidationError(
-                {"dst": "Exactly one of dst or dst_group must be provided."}
-            )
+            raise serializers.ValidationError({"dst": "Exactly one of dst or dst_group must be provided."})
         return data

@@ -105,9 +105,7 @@ class DestinationConfig(BaseResource):
 class DestinationGroup(BaseResource):
     """A named group of DestinationConfig entries for use in ACL rules."""
 
-    destinations = models.ManyToManyField(
-        DestinationConfig, blank=True, related_name="destination_groups"
-    )
+    destinations = models.ManyToManyField(DestinationConfig, blank=True, related_name="destination_groups")
 
     class Meta:
         unique_together = [("service", "name")]
@@ -121,9 +119,7 @@ class ACLRule(BaseResource):
     """A Squid ACL rule pairing a source and destination with a priority."""
 
     priority = models.IntegerField(default=100)
-    src = models.ForeignKey(
-        SourceACL, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules"
-    )
+    src = models.ForeignKey(SourceACL, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules")
     src_group = models.ForeignKey(
         SourceGroup, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules"
     )

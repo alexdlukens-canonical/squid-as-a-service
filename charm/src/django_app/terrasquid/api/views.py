@@ -6,7 +6,7 @@ from pathlib import Path
 
 from django.conf import settings
 from rest_framework import status, viewsets
-from rest_framework.exceptions import APIException, ValidationError
+from rest_framework.exceptions import APIException
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -133,10 +133,7 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
 
     def perform_update_with_squid_validation(self, serializer) -> None:
         """Update the model and validate Squid config, restoring on failure."""
-        old_data = {
-            field.name: getattr(serializer.instance, field.name)
-            for field in serializer.instance._meta.fields
-        }
+        old_data = {field.name: getattr(serializer.instance, field.name) for field in serializer.instance._meta.fields}
         self.perform_update(serializer)
         try:
             rendered = render_squid_config()
@@ -205,11 +202,7 @@ class SourceGroupViewSet(ServiceModelViewSet):
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create or return an existing SourceGroup."""
         name = request.data.get("name")
-        existing = (
-            SourceGroup.objects.filter(service=self.request.api_key.name, name=name).first()
-            if name
-            else None
-        )
+        existing = SourceGroup.objects.filter(service=self.request.api_key.name, name=name).first() if name else None
         if existing:
             return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
         serializer = self.get_serializer(data=request.data)
@@ -270,9 +263,7 @@ class DestinationConfigViewSet(ServiceModelViewSet):
         instance = self.get_object()
         if instance.destination_groups.exists() or instance.dst_rules.exists():
             return Response(
-                {
-                    "detail": "Cannot delete: resource is referenced by destination groups or ACL rules."
-                },
+                {"detail": "Cannot delete: resource is referenced by destination groups or ACL rules."},
                 status=status.HTTP_409_CONFLICT,
             )
         instance.delete()
@@ -298,9 +289,7 @@ class DestinationGroupViewSet(ServiceModelViewSet):
         """Create or return an existing DestinationGroup."""
         name = request.data.get("name")
         existing = (
-            DestinationGroup.objects.filter(service=self.request.api_key.name, name=name).first()
-            if name
-            else None
+            DestinationGroup.objects.filter(service=self.request.api_key.name, name=name).first() if name else None
         )
         if existing:
             return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)

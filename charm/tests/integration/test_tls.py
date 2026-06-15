@@ -8,9 +8,9 @@ self-signed-certificates, then verify:
 - Authenticated API requests work over HTTPS.
 """
 
-import urllib3
-import requests
 import jubilant
+import requests
+import urllib3
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -80,9 +80,7 @@ def test_http_request_rejected_when_tls_enabled(juju, deployed_charms_with_tls):
             f"{_http_url(address)}/status/",
             timeout=10,
         )
-        assert response.status_code >= 400, (
-            f"Expected an error status over plain HTTP, got {response.status_code}"
-        )
+        assert response.status_code >= 400, f"Expected an error status over plain HTTP, got {response.status_code}"
     except requests.exceptions.ConnectionError:
         pass  # SSL mismatch causes a connection error - this is the expected behaviour
 

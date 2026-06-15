@@ -44,11 +44,7 @@ def deployed_charms(juju):
     """
     charm_path = _find_charm_file()
 
-    juju.deploy(
-        "postgresql",
-        channel="16/stable",
-        base="ubuntu@24.04"
-    )
+    juju.deploy("postgresql", channel="16/stable", base="ubuntu@24.04")
     juju.deploy(
         charm_path,
         app="terrasquid",

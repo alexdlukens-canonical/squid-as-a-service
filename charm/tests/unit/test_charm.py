@@ -103,8 +103,8 @@ class TestDatabaseRelation:
             mgr.run()
         assert mock_manage.call_count == 2
         assert mock_manage.call_args_list == [
-            (('migrate', '--noinput'),),
-            (('collectstatic', '--noinput'),),
+            (("migrate", "--noinput"),),
+            (("collectstatic", "--noinput"),),
         ]
 
     def test_database_relation_broken_stops_gunicorn(self, no_subprocess, ctx, base_state):
@@ -147,9 +147,11 @@ class TestActions:
     @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("", "Error: key not found"))
     def test_create_key_action_fails_on_error(self, mock_manage, ctx, base_state):
         """create-key action should fail when the management command errors."""
-        with pytest.raises(ops.testing.ActionFailed):
-            with ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr:
-                mgr.run()
+        with (
+            pytest.raises(ops.testing.ActionFailed),
+            ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr,
+        ):
+            mgr.run()
 
     @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("http_port 3128\n", ""))
     def test_reconfigure_action_runs_render_manage_command(self, mock_manage, ctx, base_state):
@@ -263,7 +265,7 @@ class TestGunicornConfig:
     """Tests for gunicorn config SSL section generation."""
 
     def test_ssl_settings_included_when_cert_and_key_exist(self, ctx, tmp_path, monkeypatch):
-        """certfile and keyfile must appear in the gunicorn config when both files are present."""
+        """Certfile and keyfile must appear in the gunicorn config when both files are present."""
         import charm as charm_module
 
         cert_file = tmp_path / "terrasquid.crt"
@@ -311,7 +313,7 @@ class TestGunicornConfig:
         assert str(ca_file) in content
 
     def test_no_ssl_settings_when_cert_files_absent(self, ctx, tmp_path, monkeypatch):
-        """certfile and keyfile must not appear in the gunicorn config when files are missing."""
+        """Certfile and keyfile must not appear in the gunicorn config when files are missing."""
         import charm as charm_module
 
         monkeypatch.setattr(charm_module, "CERT_FILE", tmp_path / "missing.crt")
