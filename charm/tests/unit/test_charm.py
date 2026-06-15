@@ -198,19 +198,30 @@ class TestCertificatesRelation:
         """certificate_available handler must write the cert and CA PEM files to disk."""
         import charm as charm_module
 
+        key_file = tmp_path / "terrasquid.key"
         monkeypatch.setattr(charm_module, "TERRASQUID_CERTS_DIR", tmp_path)
         monkeypatch.setattr(charm_module, "CERT_FILE", tmp_path / "terrasquid.crt")
         monkeypatch.setattr(charm_module, "CA_FILE", tmp_path / "ca.crt")
+        monkeypatch.setattr(charm_module, "KEY_FILE", key_file)
+
+        cert_pem = "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"
+        ca_pem = "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----"
+        key_pem = "-----BEGIN RSA PRIVATE KEY-----\nFAKE-KEY\n-----END RSA PRIVATE KEY-----"
 
         mock_event = MagicMock()
-        mock_event.certificate = "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"
-        mock_event.ca = "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----"
+        mock_event.certificate.raw = cert_pem
+        mock_event.ca.raw = ca_pem
+
+        mock_private_key = MagicMock()
+        mock_private_key.raw = key_pem
 
         mock_self = MagicMock()
+        mock_self.certificates.get_private_key.return_value = mock_private_key
         charm_module.SquidAsAServiceCharm._on_certificate_available(mock_self, mock_event)
 
-        assert (tmp_path / "terrasquid.crt").read_text() == mock_event.certificate
-        assert (tmp_path / "ca.crt").read_text() == mock_event.ca
+        assert (tmp_path / "terrasquid.crt").read_text() == cert_pem
+        assert (tmp_path / "ca.crt").read_text() == ca_pem
+        assert key_file.read_bytes() == key_pem.encode()
         mock_self._write_gunicorn_config.assert_called_once()
         mock_self._reload_gunicorn.assert_called_once()
 

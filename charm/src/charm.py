@@ -18,9 +18,8 @@ from charms.data_platform_libs.v0.data_interfaces import (
 from charmlibs.interfaces.tls_certificates import (
     CertificateAvailableEvent,
     CertificateDeniedEvent,
+    CertificateRequestAttributes,
     TLSCertificatesRequiresV4,
-    generate_csr,
-    generate_private_key,
 )
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
@@ -56,7 +55,13 @@ class SquidAsAServiceCharm(ops.CharmBase):
         super().__init__(*args)
 
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
-        self.certificates = TLSCertificatesRequiresV4(self, "certificates")
+        _hostname = self.config.get("external-hostname", "")
+        _cert_requests = (
+            [CertificateRequestAttributes(common_name=_hostname, sans_dns=[_hostname])]
+            if _hostname
+            else []
+        )
+        self.certificates = TLSCertificatesRequiresV4(self, "certificates", certificate_requests=_cert_requests)
         self.django_ingress = IngressPerAppRequirer(self, relation_name="django-ingress")
         self.squid_ingress = IngressPerAppRequirer(self, relation_name="squid-ingress")
 
@@ -180,9 +185,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:
         """Handle certificate availability."""
         TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
-        CERT_FILE.write_text(event.certificate)
-        CA_FILE.write_text(event.ca)
-        # Key must already exist as we generated it for CSR
+        CERT_FILE.write_text(event.certificate.raw)
+        CA_FILE.write_text(event.ca.raw)
+        private_key = self.certificates.get_private_key()
+        if private_key:
+            KEY_FILE.write_bytes(private_key.raw.encode())
+            os.chmod(KEY_FILE, 0o600)
         self._write_gunicorn_config()
         self._reload_gunicorn()
         self._publish_django_ingress_requirements()
@@ -199,34 +207,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._publish_django_ingress_requirements()
 
     def _request_certificate(self) -> None:
-        """Generate a CSR and request a certificate."""
+        """Sync the TLS certificate request with the relation data."""
         if not self.model.relations.get("certificates"):
             return
         if not self.config.get("external-hostname"):
             return
-
-        private_key = self._get_or_generate_private_key()
-        common_name = self.config.get("external-hostname")
-        if not common_name:
-            logger.warning("external-hostname config is required to request a certificate")
-            return
-        csr = generate_csr(
-            private_key=private_key,
-            common_name=common_name,
-            sans_dns=[common_name],
-        )
-        self.certificates.request_certificate_creation(certificate_signing_request=csr)
-
-    def _get_or_generate_private_key(self) -> bytes:
-        """Return the existing private key or generate a new one."""
-        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
-        if KEY_FILE.exists():
-            return KEY_FILE.read_bytes()
-        
-        key = generate_private_key()
-        KEY_FILE.write_bytes(key)
-        os.chmod(KEY_FILE, 0o600)
-        return key
+        self.certificates.sync()
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
@@ -393,25 +379,22 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         ssl_config = ""
         if CERT_FILE.exists() and KEY_FILE.exists():
-            ssl_config = textwrap.dedent(f"""\
-                certfile = "{CERT_FILE}"
-                keyfile = "{KEY_FILE}"
-            """)
+            ssl_config = f'certfile = "{CERT_FILE}"\nkeyfile = "{KEY_FILE}"\n'
             if CA_FILE.exists():
                 ssl_config += f'ca_certs = "{CA_FILE}"\n'
 
-        content = textwrap.dedent(f"""\
-            bind = "0.0.0.0:{api_port}"
-            workers = {workers}
-            timeout = 120
-            worker_class = "sync"
-            accesslog = "/var/log/gunicorn.log"
-            errorlog = "/var/log/gunicorn.log"
-            access_log_format = (
-                '%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs'
-            )
-            {ssl_config}
-        """)
+        content = (
+            f'bind = "0.0.0.0:{api_port}"\n'
+            f"workers = {workers}\n"
+            'timeout = 120\n'
+            'worker_class = "sync"\n'
+            'accesslog = "/var/log/gunicorn-access.log"\n'
+            'errorlog = "/var/log/gunicorn-error.log"\n'
+            'access_log_format = (\n'
+            '    \'%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs\'\n'
+            ')\n'
+            + ssl_config
+        )
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
 
@@ -434,8 +417,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
                 terrasquid.wsgi:application
             Restart=on-failure
             RestartSec=5s
-            StandardOutput=append:/var/log/gunicorn.log
-            StandardError=append:/var/log/gunicorn.log
+            StandardOutput=append:/var/log/gunicorn-access.log
+            StandardError=append:/var/log/gunicorn-error.log
 
             [Install]
             WantedBy=multi-user.target

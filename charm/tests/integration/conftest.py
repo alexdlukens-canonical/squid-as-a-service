@@ -72,12 +72,17 @@ def deployed_charms_with_tls(juju, deployed_charms):
     relation, and waits for all applications to return to active/idle.
     Returns the same dict as deployed_charms plus a 'tls_app' key.
     """
+    saas_app = deployed_charms["saas_app"]
+    status = juju.status()
+    unit_address = status.apps[saas_app].units[f"{saas_app}/0"].public_address
+    juju.config(saas_app, {"external-hostname": unit_address})
+
     juju.deploy(
         "self-signed-certificates",
-        channel="latest/stable",
+        channel="1/stable",
         base="ubuntu@24.04",
     )
-    juju.integrate("terrasquid:certificates", "self-signed-certificates:certificates")
+    juju.integrate(f"{saas_app}:certificates", "self-signed-certificates:certificates")
     juju.wait(jubilant.all_active, timeout=300)
     return {**deployed_charms, "tls_app": "self-signed-certificates"}
 
