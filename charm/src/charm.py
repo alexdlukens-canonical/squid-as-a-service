@@ -85,6 +85,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.framework.observe(self.on.django_ingress_relation_joined, self._on_django_ingress_relation_joined)
         self.framework.observe(self.on.squid_ingress_relation_joined, self._on_squid_ingress_relation_joined)
 
+        self.framework.observe(
+            self.on.squid_aaas_peers_relation_changed, self._on_peers_relation_changed
+        )
+
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
         self.framework.observe(self.on.rotate_key_action, self._on_rotate_key_action)
@@ -126,13 +130,21 @@ class SquidAsAServiceCharm(ops.CharmBase):
             subprocess.run(["systemctl", "stop", svc], capture_output=True)
         self.unit.set_ports()
 
-    def _on_upgrade_charm(self, _event: ops.UpgradeCharmEvent) -> None:
+    def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
-        if self._database_url():
+        if not self._database_url():
+            return
+        if self.unit.is_leader():
+            self._clear_migration_flag()
             self._run_manage("migrate", "--noinput")
-            self._run_manage("collectstatic", "--noinput")
-            self._reload_gunicorn()
+            self._set_migration_flag()
+        elif not self._migration_complete():
+            self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+            event.defer()
+            return
+        self._run_manage("collectstatic", "--noinput")
+        self._reload_gunicorn()
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
         if self.model.relations.get("certificates") and not self.config.get("external-hostname"):
@@ -164,9 +176,17 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
         self.unit.status = ops.MaintenanceStatus("Configuring database")
         self._write_env_file()
-        self._run_manage("migrate", "--noinput")
-        self._run_manage("collectstatic", "--noinput")
-        self._start_services()
+        if self.unit.is_leader():
+            self._run_manage("migrate", "--noinput")
+            self._run_manage("collectstatic", "--noinput")
+            self._set_migration_flag()
+            self._start_services()
+        elif self._migration_complete():
+            self._run_manage("collectstatic", "--noinput")
+            self._start_services()
+        else:
+            self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+            event.defer()
 
     def _on_database_endpoints_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
         self._write_env_file()
@@ -175,6 +195,17 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_database_relation_broken(self, _event: ops.RelationBrokenEvent) -> None:
         self.unit.status = ops.WaitingStatus("Database relation removed")
         subprocess.run(["systemctl", "stop", GUNICORN_SERVICE], capture_output=True)
+
+    # ── Peer relation ─────────────────────────────────────────────────────────
+
+    def _on_peers_relation_changed(self, _event: ops.RelationChangedEvent) -> None:
+        if self.unit.is_leader():
+            return
+        if not self._database_url():
+            return
+        if self._migration_complete() and not self._gunicorn_running():
+            self._run_manage("collectstatic", "--noinput")
+            self._start_services()
 
     # ── Certificates relation ─────────────────────────────────────────────────
 
@@ -495,8 +526,31 @@ class SquidAsAServiceCharm(ops.CharmBase):
             ops.Port("tcp", api_port),
         )
 
+    def _set_migration_flag(self) -> None:
+        """Write the db-migrated flag to peer application data (leader only)."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return
+        rel.data[self.app]["db-migrated"] = "true"
+
+    def _clear_migration_flag(self) -> None:
+        """Clear the db-migrated flag so followers wait for the new migration to complete."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return
+        rel.data[self.app]["db-migrated"] = ""
+
+    def _migration_complete(self) -> bool:
+        """Return True if the leader has signalled that migrations are complete."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return True
+        return rel.data[self.app].get("db-migrated") == "true"
+
     def _sync_config_version_if_stale(self) -> None:
         """Re-render the Squid config and bump ConfigVersion if DB state diverges from the stored render."""
+        if not self.unit.is_leader():
+            return
         out, err = self._run_manage_capture(
             "shell",
             "-c",

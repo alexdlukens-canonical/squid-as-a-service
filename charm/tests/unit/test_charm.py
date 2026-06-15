@@ -87,7 +87,7 @@ class TestDatabaseRelation:
     @patch("charm.SquidAsAServiceCharm._run_manage")
     @patch("charm.SquidAsAServiceCharm._write_env_file")
     def test_database_created_runs_migrate(self, mock_env, mock_manage, mock_start, ctx, base_state):
-        """database_created event should invoke migrate and collectstatic."""
+        """database_created event should invoke migrate and collectstatic on the leader unit."""
         db_rel = ops.testing.Relation(
             "database",
             remote_app_name="postgresql",
@@ -98,7 +98,7 @@ class TestDatabaseRelation:
                 "database": "terrasquid",
             },
         )
-        state = ops.testing.State(config=base_state.config, relations={db_rel})
+        state = ops.testing.State(config=base_state.config, relations={db_rel}, leader=True)
         with ctx(ctx.on.relation_changed(db_rel), state) as mgr:
             mgr.run()
         assert mock_manage.call_count == 2

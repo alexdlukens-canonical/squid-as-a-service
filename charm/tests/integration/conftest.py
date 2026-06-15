@@ -22,11 +22,13 @@ def juju():
     model = os.environ.get("JUJU_MODEL")
     if model:
         juju_instance = jubilant.Juju(model=model, cli_binary=JUJU_BIN)
+        juju_instance.model_config({"update-status-hook-interval": "1m"})
         yield juju_instance
     else:
         model_name = "jubilant-" + secrets.token_hex(4)
         juju_instance = jubilant.Juju(cli_binary=JUJU_BIN)
         juju_instance.add_model(model_name)
+        juju_instance.model_config({"update-status-hook-interval": "1m"})
         try:
             yield juju_instance
         finally:
@@ -84,6 +86,12 @@ def deployed_charms_with_tls(juju, deployed_charms):
     )
     juju.integrate(f"{saas_app}:certificates", "self-signed-certificates:certificates")
     juju.wait(jubilant.all_active, timeout=300)
+
+    def tls_enabled(status):
+        unit = status.apps[saas_app].units[f"{saas_app}/0"]
+        return "tls: enabled" in unit.workload_status.message
+
+    juju.wait(tls_enabled, timeout=120)
     return {**deployed_charms, "tls_app": "self-signed-certificates"}
 
 
