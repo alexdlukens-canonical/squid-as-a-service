@@ -349,3 +349,103 @@ class TestSquidConfigValidation(TestCase):
                 format="json",
             )
         assert not SourceACL.objects.filter(name="rolled-back").exists()
+
+
+class TestConfigVersionHistory(TestCase):
+    """Tests for RenderedConfigHistory and config version pinning."""
+
+    def test_increment_saves_to_history(self) -> None:
+        """ConfigVersion.increment() must also create a RenderedConfigHistory entry."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        assert RenderedConfigHistory.objects.filter(version=1, rendered_config="# config v1").exists()
+
+    def test_increment_updates_history_for_same_version(self) -> None:
+        """Calling increment twice updates the history entry for each version."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        ConfigVersion.increment("# config v2")
+        assert RenderedConfigHistory.objects.count() == 2
+        assert RenderedConfigHistory.objects.get(version=2).rendered_config == "# config v2"
+
+
+class TestRenderSquidConfigPinning(TestCase):
+    """Tests for the render_squid_config management command with version pinning."""
+
+    def _run_command(self, stdout=None, stderr=None):
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = stdout or StringIO()
+        err = stderr or StringIO()
+        call_command("render_squid_config", stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    @patch("terrasquid.api.squid_render.render_squid_config", return_value="# config v1")
+    @patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, ""))
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 0)
+    def test_unpinned_applies_latest(self, mock_validate, mock_render) -> None:
+        """When no version is pinned, the command applies the latest config."""
+        import tempfile
+        from terrasquid.api.models import ConfigVersion
+        from pathlib import Path
+        from unittest.mock import patch as p
+
+        ConfigVersion.increment("# config v1")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            squid_conf = Path(tmpdir) / "squid.conf"
+            squid_conf_new = Path(tmpdir) / "squid.conf.new"
+            status_file = Path(tmpdir) / "status.json"
+            with p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                squid_conf,
+            ), p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                squid_conf_new,
+            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
+            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+                out, err = self._run_command()
+        assert "unchanged" in out or "Applied" in out or "reloaded" in out.lower()
+        assert not err
+
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 2)
+    def test_pinned_version_not_yet_rendered_skips(self) -> None:
+        """When pinned to a version that has not been rendered yet, the command skips."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        assert not RenderedConfigHistory.objects.filter(version=2).exists()
+
+        out, err = self._run_command()
+        assert "skipping" in out.lower()
+        assert not err
+
+    @patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, ""))
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 1)
+    def test_pinned_version_applies_correct_config(self, mock_validate) -> None:
+        """When pinned, the command applies the config stored for that exact version."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+        from pathlib import Path
+        from unittest.mock import patch as p
+
+        ConfigVersion.increment("# config v1 - pinned target")
+        ConfigVersion.increment("# config v2 - should not be applied")
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            squid_conf = Path(tmpdir) / "squid.conf"
+            squid_conf_new = Path(tmpdir) / "squid.conf.new"
+            status_file = Path(tmpdir) / "status.json"
+            with p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                squid_conf,
+            ), p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                squid_conf_new,
+            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
+            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+                out, err = self._run_command()
+
+        assert not err

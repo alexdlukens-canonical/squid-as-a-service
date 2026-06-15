@@ -348,6 +348,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_prepend_config = self.config.get("squid-prepend-config", "")
         squid_append_config = self.config.get("squid-append-config", "")
         squid_default_deny = self.config.get("squid-default-deny", True)
+        squid_pinned_config_version = self.config.get("squid-pinned-config-version", 0)
         content = textwrap.dedent(f"""\
             DATABASE_URL={db_url}
             SECRET_KEY={secret_key}
@@ -358,6 +359,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             SQUID_PREPEND_CONFIG={squid_prepend_config}
             SQUID_APPEND_CONFIG={squid_append_config}
             SQUID_DEFAULT_DENY={squid_default_deny}
+            SQUID_PINNED_CONFIG_VERSION={squid_pinned_config_version}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)

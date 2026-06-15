@@ -176,9 +176,27 @@ class ConfigVersion(models.Model):
 
     @classmethod
     def increment(cls, rendered_config: str) -> "ConfigVersion":
-        """Bump the version counter and store the new rendered config."""
+        """Bump the version counter, store the new rendered config, and save to history."""
         obj = cls.get()
         obj.version += 1
         obj.rendered_config = rendered_config
         obj.save()
+        RenderedConfigHistory.objects.update_or_create(
+            version=obj.version,
+            defaults={"rendered_config": rendered_config},
+        )
         return obj
+
+
+class RenderedConfigHistory(models.Model):
+    """Stores the rendered Squid configuration for each version, enabling pinning."""
+
+    version = models.IntegerField(unique=True)
+    rendered_config = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-version"]
+
+    def __str__(self) -> str:
+        return f"v{self.version}"

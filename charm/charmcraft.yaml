@@ -40,6 +40,15 @@ config:
       type: boolean
       default: true
       description: When true, append "http_access deny all" as the final rule (default deny). Set to false to omit it.
+    squid-pinned-config-version:
+      type: int
+      default: 0
+      description: |
+        Pin the applied Squid configuration to a specific version number.
+        When set to 0 (the default), the watcher always applies the latest
+        rendered configuration. When set to a positive integer N, the watcher
+        will only apply the configuration rendered at version N. If that version
+        has not been rendered yet, the watcher will skip the update until it is.
     external-hostname:
       type: string
       default: ""

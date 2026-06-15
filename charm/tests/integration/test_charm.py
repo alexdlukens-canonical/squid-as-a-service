@@ -174,6 +174,71 @@ def test_list_keys_action(juju, deployed_charms):
     assert "keys" in task.results
 
 
+def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
+    """Return the applied_config_version from the unit status endpoint."""
+    address = _unit_address(juju, app, unit_index)
+    response = requests.get(f"{_api_url(address)}/status/", timeout=10)
+    response.raise_for_status()
+    return response.json().get("applied_config_version", 0)
+
+
+def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
+    """Return the db_config_version from the unit status endpoint."""
+    address = _unit_address(juju, app, unit_index)
+    response = requests.get(f"{_api_url(address)}/status/", timeout=10)
+    response.raise_for_status()
+    return response.json().get("db_config_version", 0)
+
+
+def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
+    """When squid-pinned-config-version is set, the applied version must not advance beyond it."""
+    app = deployed_charms["saas_app"]
+    address = _unit_address(juju, app)
+    key = _create_api_key(juju, app, "pin-test")
+    headers = {"Authorization": f"Api-Key {key}"}
+
+    requests.post(
+        f"{_api_url(address)}/sources/",
+        json={"name": "pin-src-v1", "cidr": ["10.10.0.0/16"]},
+        headers=headers,
+        timeout=10,
+    )
+    juju.run(f"{app}/0", "reconfigure")
+    time.sleep(10)
+
+    v1 = _get_applied_config_version(juju, app)
+    assert v1 >= 1, "Expected at least one config version to have been applied"
+
+    juju.config(app, {"squid-pinned-config-version": str(v1)})
+    juju.wait(jubilant.all_active, timeout=60)
+
+    requests.post(
+        f"{_api_url(address)}/sources/",
+        json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
+        headers=headers,
+        timeout=10,
+    )
+    juju.run(f"{app}/0", "reconfigure")
+    time.sleep(15)
+
+    applied_after = _get_applied_config_version(juju, app)
+    db_version_after = _get_db_config_version(juju, app)
+
+    assert db_version_after > v1, "DB version should have advanced after new resource was created"
+    assert applied_after == v1, (
+        f"Applied version {applied_after} should remain frozen at pinned version {v1}"
+    )
+
+    juju.config(app, {"squid-pinned-config-version": "0"})
+    juju.wait(jubilant.all_active, timeout=60)
+    time.sleep(15)
+
+    applied_unpinned = _get_applied_config_version(juju, app)
+    assert applied_unpinned == db_version_after, (
+        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {db_version_after}"
+    )
+
+
 def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
     """Adding an ACL rule must cause the watcher to apply it and Squid to allow matching traffic.
 

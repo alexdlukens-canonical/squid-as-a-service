@@ -183,6 +183,53 @@ class TestEnvFile:
             charm_module.TERRASQUID_ENV_FILE = orig_env
             charm_module.GUNICORN_CONF_FILE = orig_gunicorn
 
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
+    def test_env_file_contains_pinned_config_version(self, mock_db, mock_key, ctx, tmp_path):
+        """When squid-pinned-config-version is set, it must appear in the env file."""
+        import charm as charm_module
+
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
+        charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
+        state = ops.testing.State(
+            config={
+                "squid-port": 3128,
+                "api-port": 8080,
+                "gunicorn-workers": 4,
+                "squid-extra-config": "",
+                "squid-pinned-config-version": 5,
+            }
+        )
+        try:
+            with ctx(ctx.on.config_changed(), state) as mgr:
+                mgr.run()
+            content = (tmp_path / "terrasquid.env").read_text()
+            assert "SQUID_PINNED_CONFIG_VERSION=5" in content
+        finally:
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn
+
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
+    def test_env_file_defaults_pinned_version_to_zero(self, mock_db, mock_key, ctx, base_state, tmp_path):
+        """When squid-pinned-config-version is unset, the env file must default to 0."""
+        import charm as charm_module
+
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
+        charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
+        try:
+            with ctx(ctx.on.config_changed(), base_state) as mgr:
+                mgr.run()
+            content = (tmp_path / "terrasquid.env").read_text()
+            assert "SQUID_PINNED_CONFIG_VERSION=0" in content
+        finally:
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn
+
 
 class TestCertificatesRelation:
     """Tests for TLS certificates relation lifecycle."""

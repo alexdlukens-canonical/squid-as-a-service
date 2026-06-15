@@ -33,7 +33,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         """Execute the command."""
-        from terrasquid.api.models import ConfigVersion
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
 
         config_version = ConfigVersion.get()
 
@@ -45,6 +45,18 @@ class Command(BaseCommand):
             else:
                 Path(output).write_text(rendered)
                 self.stdout.write(f"Wrote config to {output}")
+            return
+
+        pinned_version = settings.SQUID_PINNED_CONFIG_VERSION
+        if pinned_version > 0:
+            try:
+                history_entry = RenderedConfigHistory.objects.get(version=pinned_version)
+            except RenderedConfigHistory.DoesNotExist:
+                self.stdout.write(
+                    f"Pinned config version {pinned_version} has not been rendered yet; skipping."
+                )
+                return
+            self._apply(history_entry.rendered_config, pinned_version)
             return
 
         rendered = config_version.rendered_config or render_squid_config(version=config_version.version)
