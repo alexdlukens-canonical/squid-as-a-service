@@ -47,7 +47,8 @@ class Command(BaseCommand):
                 self.stdout.write(f"Wrote config to {output}")
             return
 
-        self._apply(config_version.rendered_config, config_version.version)
+        rendered = config_version.rendered_config or render_squid_config(version=config_version.version)
+        self._apply(rendered, config_version.version)
 
     def _apply(self, rendered: str, version: int) -> None:
         """Write, validate, diff, atomically replace, and reload Squid."""
@@ -87,9 +88,11 @@ class Command(BaseCommand):
         status_path = Path(settings.TERRASQUID_STATUS_FILE)
         status_path.parent.mkdir(parents=True, exist_ok=True)
         status_path.write_text(
-            json.dumps({
-                "applied_config_version": version,
-                "last_reload": datetime.now(UTC).isoformat(),
-                "last_reload_ok": reload_ok,
-            })
+            json.dumps(
+                {
+                    "applied_config_version": version,
+                    "last_reload": datetime.now(UTC).isoformat(),
+                    "last_reload_ok": reload_ok,
+                }
+            )
         )

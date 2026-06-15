@@ -3,6 +3,7 @@
 # DO NOT EDIT — managed by the Terrasquid charm
 
 http_port {{ squid_port }}
+http_port [::]:{{ squid_port }}
 coredump_dir /var/spool/squid
 
 {% if squid_prepend_config %}

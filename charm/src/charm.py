@@ -4,26 +4,25 @@
 import json
 import logging
 import os
+import secrets
 import subprocess
 import textwrap
 from datetime import UTC
 from pathlib import Path
 
 import ops
-from charms.data_platform_libs.v0.data_interfaces import (
-    DatabaseCreatedEvent,
-    DatabaseEndpointsChangedEvent,
-    DatabaseRequires,
-)
 from charmlibs.interfaces.tls_certificates import (
     CertificateAvailableEvent,
     CertificateDeniedEvent,
     CertificateRequestAttributes,
     TLSCertificatesRequiresV4,
 )
+from charms.data_platform_libs.v0.data_interfaces import (
+    DatabaseCreatedEvent,
+    DatabaseEndpointsChangedEvent,
+    DatabaseRequires,
+)
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
-
-import secrets
 
 import squid
 
@@ -57,9 +56,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
         _hostname = self.config.get("external-hostname", "")
         _cert_requests = (
-            [CertificateRequestAttributes(common_name=_hostname, sans_dns=[_hostname])]
-            if _hostname
-            else []
+            [CertificateRequestAttributes(common_name=_hostname, sans_dns=[_hostname])] if _hostname else []
         )
         self.certificates = TLSCertificatesRequiresV4(self, "certificates", certificate_requests=_cert_requests)
         self.django_ingress = IngressPerAppRequirer(self, relation_name="django-ingress")
@@ -74,9 +71,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.framework.observe(self.database.on.database_created, self._on_database_created)
         self.framework.observe(self.database.on.endpoints_changed, self._on_database_endpoints_changed)
-        self.framework.observe(
-            self.on.database_relation_broken, self._on_database_relation_broken
-        )
+        self.framework.observe(self.on.database_relation_broken, self._on_database_relation_broken)
 
         self.framework.observe(self.on.certificates_relation_joined, self._on_certificates_relation_joined)
         self.framework.observe(self.certificates.on.certificate_available, self._on_certificate_available)
@@ -84,10 +79,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.framework.observe(self.on.django_ingress_relation_joined, self._on_django_ingress_relation_joined)
         self.framework.observe(self.on.squid_ingress_relation_joined, self._on_squid_ingress_relation_joined)
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
 
-        self.framework.observe(
-            self.on.squid_aaas_peers_relation_changed, self._on_peers_relation_changed
-        )
+        self.framework.observe(self.on.squid_aaas_peers_relation_changed, self._on_peers_relation_changed)
 
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
@@ -148,7 +142,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
         if self.model.relations.get("certificates") and not self.config.get("external-hostname"):
-            event.add_status(ops.BlockedStatus("external-hostname config required when certificates relation is configured"))
+            event.add_status(
+                ops.BlockedStatus("external-hostname config required when certificates relation is configured")
+            )
             return
         if not self._database_url():
             event.add_status(ops.WaitingStatus("Waiting for database relation"))
@@ -161,7 +157,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_status = "up" if squid.squid_service_running() else "down"
         config_version = self._read_applied_config_version()
         tls_status = "enabled" if CERT_FILE.exists() else "disabled"
-        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"))
+        event.add_status(
+            ops.ActiveStatus(
+                f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"
+            )
+        )
 
     # ── Ingress relations ─────────────────────────────────────────────────────
 
@@ -169,6 +169,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._publish_django_ingress_requirements()
 
     def _on_squid_ingress_relation_joined(self, _event: ops.RelationJoinedEvent) -> None:
+        self._publish_squid_ingress_requirements()
+
+    def _on_leader_elected(self, _event: ops.LeaderElectedEvent) -> None:
+        self._publish_django_ingress_requirements()
         self._publish_squid_ingress_requirements()
 
     # ── Database relation ─────────────────────────────────────────────────────
@@ -187,6 +191,10 @@ class SquidAsAServiceCharm(ops.CharmBase):
         else:
             self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
             event.defer()
+            return
+        # Re-publish ingress requirements now that ports are open.
+        self._publish_django_ingress_requirements()
+        self._publish_squid_ingress_requirements()
 
     def _on_database_endpoints_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
         self._write_env_file()
@@ -381,12 +389,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _run_manage(self, *args: str) -> None:
         """Run a Django management command, raising on failure."""
+        logger.info("Running manage.py %s", " ".join(args))
         cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
         subprocess.run(cmd, check=True, env=self._django_env(), cwd=str(DJANGO_APP_DIR))
 
-    def _run_manage_capture(
-        self, *args: str, extra_env: dict | None = None
-    ) -> tuple[str, str]:
+    def _run_manage_capture(self, *args: str, extra_env: dict | None = None) -> tuple[str, str]:
         """Run a Django management command and return (stdout, stderr)."""
         cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
         env = self._django_env()
@@ -415,16 +422,15 @@ class SquidAsAServiceCharm(ops.CharmBase):
                 ssl_config += f'ca_certs = "{CA_FILE}"\n'
 
         content = (
-            f'bind = "0.0.0.0:{api_port}"\n'
+            f'bind = "[::]:{api_port}"\n'
             f"workers = {workers}\n"
-            'timeout = 120\n'
+            "timeout = 120\n"
             'worker_class = "sync"\n'
             'accesslog = "/var/log/gunicorn-access.log"\n'
             'errorlog = "/var/log/gunicorn-error.log"\n'
-            'access_log_format = (\n'
+            "access_log_format = (\n"
             '    \'%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs\'\n'
-            ')\n'
-            + ssl_config
+            ")\n" + ssl_config
         )
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
@@ -500,15 +506,16 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _gunicorn_running(self) -> bool:
         """Return True if the Gunicorn service is active."""
-        result = subprocess.run(
-            ["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True
-        )
+        result = subprocess.run(["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True)
         return result.returncode == 0
 
     def _publish_django_ingress_requirements(self) -> None:
-        """Publish ingress requirements for the Django API, leader unit only."""
-        if not self.unit.is_leader():
-            return
+        """Publish ingress requirements for the Django API.
+
+        App-level data (port, scheme) is written only by the leader; the library
+        enforces this internally. Every unit must call this so it can publish its
+        own host/IP, allowing the ingress provider to load-balance across all units.
+        """
         api_port = int(self.config.get("api-port", 8080))
         scheme = "https" if CERT_FILE.exists() else "http"
         self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme)
