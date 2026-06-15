@@ -41,8 +41,7 @@ def juju_ha():
     try:
         yield j
     finally:
-        # j.destroy_model(model_name, destroy_storage=True)
-        pass
+        j.destroy_model(model_name, destroy_storage=True)
 
 
 @pytest.fixture(scope="module")
