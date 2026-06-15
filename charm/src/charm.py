@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Terrasquid (Squid-as-a-Service) Juju machine charm."""
 
+import ipaddress
 import json
 import logging
 import os
@@ -511,6 +512,19 @@ class SquidAsAServiceCharm(ops.CharmBase):
         result = subprocess.run(["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True)
         return result.returncode == 0
 
+    def _get_ipv4_bind_address(self, relation_name: str) -> str | None:
+        """Return the first IPv4 bind address for a relation, or None."""
+        binding = self.model.get_binding(relation_name)
+        if binding is None:
+            return None
+        for iface in binding.network.interfaces:
+            try:
+                if isinstance(ipaddress.ip_address(str(iface.address)), ipaddress.IPv4Address):
+                    return str(iface.address)
+            except ValueError:
+                continue
+        return None
+
     def _publish_django_ingress_requirements(self) -> None:
         """Publish ingress requirements for the Django API.
 
@@ -520,12 +534,14 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """
         api_port = int(self.config.get("api-port", 8080))
         scheme = "https" if CERT_FILE.exists() else "http"
-        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme)
+        ip = self._get_ipv4_bind_address("django-ingress")
+        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme, ip=ip)
 
     def _publish_squid_ingress_requirements(self) -> None:
         """Publish ingress requirements for Squid, all units."""
         squid_port = int(self.config.get("squid-port", 3128))
-        self.squid_ingress.provide_ingress_requirements(port=squid_port)
+        ip = self._get_ipv4_bind_address("squid-ingress")
+        self.squid_ingress.provide_ingress_requirements(port=squid_port, ip=ip)
 
     def _open_ports(self) -> None:
         squid_port = int(self.config.get("squid-port", 3128))
