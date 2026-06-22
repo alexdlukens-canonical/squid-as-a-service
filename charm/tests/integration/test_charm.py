@@ -182,6 +182,22 @@ def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int =
     return response.json().get("applied_config_version", 0)
 
 
+def _wait_for_applied_version(
+    juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60
+) -> None:
+    """Poll until applied_config_version reaches expected_version."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        current = _get_applied_config_version(juju, app)
+        if current >= expected_version:
+            return
+        time.sleep(3)
+    current = _get_applied_config_version(juju, app)
+    raise AssertionError(
+        f"Applied version {current} did not reach {expected_version} within {timeout}s"
+    )
+
+
 def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
     """Return the db_config_version from the unit status endpoint."""
     address = _unit_address(juju, app, unit_index)
@@ -231,7 +247,8 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
 
     juju.config(app, {"squid-pinned-config-version": "0"})
     juju.wait(jubilant.all_active, timeout=60)
-    time.sleep(15)
+    juju.run(f"{app}/0", "reconfigure")
+    _wait_for_applied_version(juju, app, expected_version=db_version_after)
 
     applied_unpinned = _get_applied_config_version(juju, app)
     assert applied_unpinned == db_version_after, (

@@ -5,6 +5,7 @@ import logging
 from pathlib import Path
 
 from django.conf import settings
+from django.db import transaction
 from rest_framework import status, viewsets
 from rest_framework.exceptions import APIException
 from rest_framework.permissions import AllowAny
@@ -122,28 +123,19 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
 
     def perform_create_with_squid_validation(self, serializer) -> None:
         """Save the model and validate Squid config, rolling back on failure."""
-        self.perform_create(serializer)
-        try:
+        with transaction.atomic():
+            self.perform_create(serializer)
             rendered = render_squid_config()
             self._validate_squid_after_change(rendered)
             ConfigVersion.increment(rendered)
-        except SquidConfigError:
-            serializer.instance.delete()
-            raise
-
+    
     def perform_update_with_squid_validation(self, serializer) -> None:
-        """Update the model and validate Squid config, restoring on failure."""
-        old_data = {field.name: getattr(serializer.instance, field.name) for field in serializer.instance._meta.fields}
-        self.perform_update(serializer)
-        try:
+        """Update the model and validate Squid config, rolling back on failure."""
+        with transaction.atomic():
+            self.perform_update(serializer)
             rendered = render_squid_config()
             self._validate_squid_after_change(rendered)
             ConfigVersion.increment(rendered)
-        except SquidConfigError:
-            for field, value in old_data.items():
-                setattr(serializer.instance, field, value)
-            serializer.instance.save()
-            raise
 
 
 class SourceACLViewSet(ServiceModelViewSet):
@@ -180,8 +172,9 @@ class SourceACLViewSet(ServiceModelViewSet):
                 {"detail": "Cannot delete: resource is referenced by source groups or ACL rules."},
                 status=status.HTTP_409_CONFLICT,
             )
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -227,8 +220,9 @@ class SourceGroupViewSet(ServiceModelViewSet):
                 {"detail": "Cannot delete: resource is referenced by ACL rules."},
                 status=status.HTTP_409_CONFLICT,
             )
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -266,8 +260,9 @@ class DestinationConfigViewSet(ServiceModelViewSet):
                 {"detail": "Cannot delete: resource is referenced by destination groups or ACL rules."},
                 status=status.HTTP_409_CONFLICT,
             )
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -315,8 +310,9 @@ class DestinationGroupViewSet(ServiceModelViewSet):
                 {"detail": "Cannot delete: resource is referenced by ACL rules."},
                 status=status.HTTP_409_CONFLICT,
             )
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -354,8 +350,9 @@ class PortGroupViewSet(ServiceModelViewSet):
                 {"detail": "Cannot delete: resource is referenced by destination configs."},
                 status=status.HTTP_409_CONFLICT,
             )
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -388,6 +385,7 @@ class ACLRuleViewSet(ServiceModelViewSet):
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         """Delete an ACLRule."""
         instance = self.get_object()
-        instance.delete()
-        _post_write_render()
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
         return Response(status=status.HTTP_204_NO_CONTENT)
