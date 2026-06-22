@@ -67,8 +67,8 @@ class Command(BaseCommand):
         SQUID_CONF_NEW.parent.mkdir(parents=True, exist_ok=True)
         SQUID_CONF_NEW.write_text(rendered)
 
-        if SQUID_CONF.exists() and SQUID_CONF.read_text() == rendered:
-            SQUID_CONF_NEW.unlink()
+        if SQUID_CONF.exists() and SQUID_CONF.read_text().strip() == rendered.strip():
+            SQUID_CONF_NEW.unlink(missing_ok=True)
             self.stdout.write("Squid config unchanged, skipping reload.")
             self._write_status(version, reload_ok=True)
             return
@@ -79,6 +79,9 @@ class Command(BaseCommand):
             self.stderr.write(f"Squid config validation failed: {err}")
             sys.exit(1)
 
+        SQUID_CONF_BAK = SQUID_CONF.with_suffix(".conf.bak")
+        if SQUID_CONF.exists():
+            SQUID_CONF.replace(SQUID_CONF_BAK)
         SQUID_CONF_NEW.replace(SQUID_CONF)
         self.stdout.write(f"Applied new Squid config to {SQUID_CONF}")
 
@@ -89,8 +92,13 @@ class Command(BaseCommand):
         )
         if result.returncode != 0:
             self.stderr.write(f"Squid reload failed: {(result.stderr or result.stdout).strip()}")
+            if SQUID_CONF_BAK.exists():
+                SQUID_CONF_BAK.replace(SQUID_CONF)
+                self.stderr.write("Restored previous Squid config from backup.")
             self._write_status(version, reload_ok=False)
             sys.exit(1)
+        if SQUID_CONF_BAK.exists():
+            SQUID_CONF_BAK.unlink(missing_ok=True)
 
         self.stdout.write("Squid reloaded successfully.")
         self._write_status(version, reload_ok=True)

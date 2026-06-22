@@ -69,18 +69,15 @@ def _load_unit_status() -> dict:
     if path.exists():
         try:
             return json.loads(path.read_text())
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Failed to parse status file %s: %s", path, e)
     return {}
 
 
 def _post_write_render() -> None:
     """Render the Squid config from current DB state and update ConfigVersion."""
-    try:
-        rendered = render_squid_config()
-        ConfigVersion.increment(rendered)
-    except Exception:
-        logger.exception("Failed to render Squid config after write")
+    rendered = render_squid_config()
+    ConfigVersion.increment(rendered)
 
 
 class ServiceModelViewSet(viewsets.ModelViewSet):
@@ -116,10 +113,13 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create or return existing resource (idempotent by (service, name))."""
         name = request.data.get("name")
-        existing = self.get_queryset().filter(name=name).first() if name else None
+        existing = self.queryset.filter(service=request.api_key.name, name=name).first() if name else None
         if existing:
             return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create_with_squid_validation(serializer)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def perform_create_with_squid_validation(self, serializer) -> None:
         """Save the model and validate Squid config, rolling back on failure."""
@@ -143,17 +143,6 @@ class SourceACLViewSet(ServiceModelViewSet):
 
     queryset = SourceACL.objects.all()
     serializer_class = SourceACLSerializer
-
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing SourceACL."""
-        name = request.data.get("name")
-        existing = self.get_queryset().filter(name=name).first() if name else None
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update a SourceACL with Squid config validation."""
@@ -192,17 +181,6 @@ class SourceGroupViewSet(ServiceModelViewSet):
             return qs.filter(name=name)
         return qs.filter(service=self.request.api_key.name)
 
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing SourceGroup."""
-        name = request.data.get("name")
-        existing = SourceGroup.objects.filter(service=self.request.api_key.name, name=name).first() if name else None
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update a SourceGroup with Squid config validation."""
         partial = kwargs.pop("partial", False)
@@ -231,17 +209,6 @@ class DestinationConfigViewSet(ServiceModelViewSet):
 
     queryset = DestinationConfig.objects.prefetch_related("port_groups")
     serializer_class = DestinationConfigSerializer
-
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing DestinationConfig."""
-        name = request.data.get("name")
-        existing = self.get_queryset().filter(name=name).first() if name else None
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update a DestinationConfig with Squid config validation."""
@@ -280,19 +247,6 @@ class DestinationGroupViewSet(ServiceModelViewSet):
             return qs.filter(name=name)
         return qs.filter(service=self.request.api_key.name)
 
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing DestinationGroup."""
-        name = request.data.get("name")
-        existing = (
-            DestinationGroup.objects.filter(service=self.request.api_key.name, name=name).first() if name else None
-        )
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update a DestinationGroup with Squid config validation."""
         partial = kwargs.pop("partial", False)
@@ -322,17 +276,6 @@ class PortGroupViewSet(ServiceModelViewSet):
     queryset = PortGroup.objects.all()
     serializer_class = PortGroupSerializer
 
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing PortGroup."""
-        name = request.data.get("name")
-        existing = self.get_queryset().filter(name=name).first() if name else None
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update a PortGroup with Squid config validation."""
         partial = kwargs.pop("partial", False)
@@ -361,17 +304,6 @@ class ACLRuleViewSet(ServiceModelViewSet):
 
     queryset = ACLRule.objects.select_related("src", "src_group", "dst", "dst_group")
     serializer_class = ACLRuleSerializer
-
-    def create(self, request: Request, *args, **kwargs) -> Response:
-        """Create or return an existing ACLRule."""
-        name = request.data.get("name")
-        existing = self.get_queryset().filter(name=name).first() if name else None
-        if existing:
-            return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        self.perform_create_with_squid_validation(serializer)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def update(self, request: Request, *args, **kwargs) -> Response:
         """Update an ACLRule with Squid config validation."""
