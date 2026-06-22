@@ -141,17 +141,6 @@ class ACLRule(BaseResource):
     class Meta:
         unique_together = [("service", "name")]
 
-    def clean(self) -> None:
-        """Validate that exactly one source and one destination is specified."""
-        has_src = self.src_id is not None
-        has_src_group = self.src_group_id is not None
-        if has_src == has_src_group:
-            raise ValidationError("Exactly one of src or src_group must be set.")
-        has_dst = self.dst_id is not None
-        has_dst_group = self.dst_group_id is not None
-        if has_dst == has_dst_group:
-            raise ValidationError("Exactly one of dst or dst_group must be set.")
-
     def __str__(self) -> str:
         """Return the string representation."""
         return f"{self.service}/{self.name}"
