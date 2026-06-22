@@ -1,6 +1,7 @@
 """DRF serializers for all Terrasquid API resource types."""
 
 import ipaddress
+import re
 
 from rest_framework import serializers
 
@@ -67,10 +68,10 @@ class PortGroupSerializer(BaseResourceSerializer):
         fields = ["id", "service", "name", "key_prefix", "ports", "created_at", "updated_at"]
 
     def validate_ports(self, value: list) -> list:
-        """Validate each port is in the 1–65535 range."""
+        """Validate each port is an integer in the 1–65535 range."""
         for port in value:
-            if not 1 <= port <= 65535:
-                raise serializers.ValidationError(f"Port {port} is outside the valid range 1–65535.")
+            if not isinstance(port, int) or not 1 <= port <= 65535:
+                raise serializers.ValidationError(f"Each port must be an integer in the range 1–65535, got {port!r}.")
         return value
 
 
@@ -98,6 +99,17 @@ class DestinationConfigSerializer(BaseResourceSerializer):
             "created_at",
             "updated_at",
         ]
+
+    def validate_dst(self, value: str) -> str:
+        """Validate that dst is a valid CIDR or a plausible hostname/domain."""
+        try:
+            ipaddress.ip_network(value, strict=False)
+            return value
+        except ValueError:
+            pass
+        if re.match(r"^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$", value):
+            return value
+        raise serializers.ValidationError(f"'{value}' is not a valid CIDR or hostname.")
 
 
 class DestinationGroupSerializer(BaseResourceSerializer):
