@@ -189,6 +189,26 @@ class TestPortGroupEndpoints(TestCase):
         )
         assert response.status_code == 400
 
+    def test_string_port_value_returns_400(self) -> None:
+        """String port values should return 400, not TypeError."""
+        response = self.client.post(
+            "/api/v1/port-groups/",
+            {"name": "string-port", "ports": ["80", "443"]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_duplicate_ports_in_array(self) -> None:
+        """Duplicate ports in array should be allowed (or deduplicated by backend)."""
+        with patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")):
+            with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
+                response = self.client.post(
+                    "/api/v1/port-groups/",
+                    {"name": "dup-ports", "ports": [80, 80, 443]},
+                    format="json",
+                )
+        assert response.status_code == 201
+
 
 class TestDestinationConfigEndpoints(TestCase):
     """Tests for /api/v1/destinations/ CRUD."""
@@ -308,6 +328,31 @@ class TestACLRuleEndpoints(TestCase):
             format="json",
         )
         assert response.status_code == 400
+
+    def test_rendered_config_includes_acl_rule(self) -> None:
+        """When an ACL rule is created, the rendered config must include its http_access statement."""
+        from terrasquid.api.views import _post_write_render
+        from terrasquid.api.models import ConfigVersion
+
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config") as mock_render,
+        ):
+            mock_render.return_value = "# config\nhttp_access allow src__test-service__my-src dst__test-service__my-dst"
+            response = self.client.post(
+                "/api/v1/acl-rules/",
+                {
+                    "name": "allow-corp-to-ubuntu",
+                    "src": str(self.src.id),
+                    "dst": str(self.dst.id),
+                },
+                format="json",
+            )
+        assert response.status_code == 201
+        config = ConfigVersion.get().rendered_config
+        assert "http_access" in config
+        assert "src__test-service__my-src" in config
+        assert "dst__test-service__my-dst" in config
 
 
 class TestSquidConfigValidation(TestCase):

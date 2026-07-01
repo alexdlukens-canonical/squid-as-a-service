@@ -54,9 +54,23 @@ class SourceGroupSerializer(BaseResourceSerializer):
         fields = ["id", "service", "name", "key_prefix", "sources", "created_at", "updated_at"]
 
     def validate_sources(self, value: list) -> list:
-        """Validate that all referenced SourceACL IDs exist."""
+        """Validate that all referenced SourceACL IDs exist and belong to the authenticated service."""
         if not value:
             raise serializers.ValidationError("At least one source is required.")
+        
+        request = self.context.get('request')
+        if not request:
+            raise serializers.ValidationError("Request context not available.")
+        
+        service = request.api_key.name
+        
+        for source_acl in value:
+            if source_acl.service != service:
+                raise serializers.ValidationError(
+                    f"Source '{source_acl.name}' belongs to service '{source_acl.service}', "
+                    f"not the authenticated service '{service}'."
+                )
+        
         return value
 
 
@@ -184,14 +198,25 @@ class ACLRuleSerializer(BaseResourceSerializer):
             "updated_at",
         ]
 
-    def validate(self, data: dict) -> dict:
-        """Validate the mutual exclusivity constraints on src/src_group and dst/dst_group."""
-        has_src = bool(data.get("src"))
-        has_src_group = bool(data.get("src_group"))
+    def validate(self, attrs):
+        """Validate mutual exclusivity constraints on src/src_group and dst/dst_group."""
+        src = attrs.get("src")
+        src_group = attrs.get("src_group")
+        dst = attrs.get("dst")
+        dst_group = attrs.get("dst_group")
+
+        has_src = src is not None
+        has_src_group = src_group is not None
         if has_src == has_src_group:
-            raise serializers.ValidationError({"src": "Exactly one of src or src_group must be provided."})
-        has_dst = bool(data.get("dst"))
-        has_dst_group = bool(data.get("dst_group"))
+            raise serializers.ValidationError(
+                {"src": "Exactly one of src or src_group must be provided."}
+            )
+
+        has_dst = dst is not None
+        has_dst_group = dst_group is not None
         if has_dst == has_dst_group:
-            raise serializers.ValidationError({"dst": "Exactly one of dst or dst_group must be provided."})
-        return data
+            raise serializers.ValidationError(
+                {"dst": "Exactly one of dst or dst_group must be provided."}
+            )
+
+        return attrs

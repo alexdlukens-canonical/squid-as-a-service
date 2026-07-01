@@ -75,8 +75,11 @@ def _load_unit_status() -> dict:
 
 
 def _post_write_render() -> None:
-    """Render the Squid config from current DB state and update ConfigVersion."""
+    """Render the Squid config from current DB state, validate, and update ConfigVersion."""
     rendered = render_squid_config()
+    ok, err = validate_squid_config(rendered)
+    if not ok:
+        raise SquidConfigError(detail=f"Squid configuration validation failed: {err}")
     ConfigVersion.increment(rendered)
 
 
@@ -123,16 +126,24 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
 
     def perform_create_with_squid_validation(self, serializer) -> None:
         """Save the model and validate Squid config, rolling back on failure."""
+        from django.core.exceptions import ValidationError
         with transaction.atomic():
-            self.perform_create(serializer)
+            try:
+                self.perform_create(serializer)
+            except ValidationError as e:
+                raise SquidConfigError(detail=str(e)) from e
             rendered = render_squid_config()
             self._validate_squid_after_change(rendered)
             ConfigVersion.increment(rendered)
     
     def perform_update_with_squid_validation(self, serializer) -> None:
         """Update the model and validate Squid config, rolling back on failure."""
+        from django.core.exceptions import ValidationError
         with transaction.atomic():
-            self.perform_update(serializer)
+            try:
+                self.perform_update(serializer)
+            except ValidationError as e:
+                raise SquidConfigError(detail=str(e)) from e
             rendered = render_squid_config()
             self._validate_squid_after_change(rendered)
             ConfigVersion.increment(rendered)

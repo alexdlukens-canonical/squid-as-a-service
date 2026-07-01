@@ -145,9 +145,40 @@ class ACLRule(BaseResource):
         """Return the string representation."""
         return f"{self.service}/{self.name}"
 
+    def clean(self) -> None:
+        """Validate mutual exclusivity constraints on src/src_group and dst/dst_group."""
+        has_src = self.src is not None
+        has_src_group = self.src_group is not None
+        if has_src == has_src_group:
+            raise ValidationError({"src": "Exactly one of src or src_group must be provided."})
+
+        has_dst = self.dst is not None
+        has_dst_group = self.dst_group is not None
+        if has_dst == has_dst_group:
+            raise ValidationError({"dst": "Exactly one of dst or dst_group must be provided."})
+
+    def save(self, *args, **kwargs) -> None:
+        """Enforce validation before saving by calling full_clean()."""
+        self.full_clean()
+        super().save(*args, **kwargs)
+
 
 class ConfigVersion(models.Model):
-    """Singleton tracking the current rendered Squid configuration version."""
+    """Singleton tracking the current rendered Squid configuration version.
+    
+    **Design**: This model maintains a single record (pk=1) storing:
+    - The current version number (auto-incremented on each config change)
+    - The rendered config string (for comparison and rollback)
+    - Timestamp of last update
+    
+    **Relationship to RenderedConfigHistory**: 
+    - ConfigVersion represents the *current* state; RenderedConfigHistory stores *history*.
+    - When ConfigVersion is incremented, a new RenderedConfigHistory entry is created.
+    - This two-model design enables squid-pinned-config-version to reference historical versions.
+    - Without RenderedConfigHistory, pinning would require storing all old configs in ConfigVersion.
+    
+    See RenderedConfigHistory for the historical record and pinning mechanism.
+    """
 
     version = models.IntegerField(default=0)
     rendered_config = models.TextField(default="")
@@ -178,7 +209,21 @@ class ConfigVersion(models.Model):
 
 
 class RenderedConfigHistory(models.Model):
-    """Stores the rendered Squid configuration for each version, enabling pinning."""
+    """Stores the rendered Squid configuration for each version, enabling pinning.
+    
+    **Design**: A separate history table storing immutable records of every rendered config.
+    
+    **Use case**: The squid-pinned-config-version charm config option allows operators to 
+    "freeze" at a specific version. When pinned, the watcher reads the config from this 
+    table (via ConfigVersion.increment()) instead of re-rendering from the database.
+    
+    **Relationship to ConfigVersion**:
+    - ConfigVersion.increment() automatically creates a new RenderedConfigHistory entry.
+    - This model stores the history; ConfigVersion stores the current pointer.
+    - Never update or delete RenderedConfigHistory entries (immutable audit trail).
+    
+    See ConfigVersion for the current state; this model for historical records.
+    """
 
     version = models.IntegerField(unique=True)
     rendered_config = models.TextField()

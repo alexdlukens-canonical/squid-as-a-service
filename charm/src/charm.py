@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """Terrasquid (Squid-as-a-Service) Juju machine charm."""
 
-import ipaddress
 import json
 import logging
 import os
 import secrets
 import subprocess
 import textwrap
-from datetime import UTC
+from datetime import UTC, datetime
 from pathlib import Path
+from urllib.parse import quote
 
 import ops
 from charmlibs.interfaces.tls_certificates import (
@@ -99,6 +99,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
         TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._get_or_generate_secret_key()
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
 
@@ -130,16 +131,21 @@ class SquidAsAServiceCharm(ops.CharmBase):
         subprocess.run(["systemctl", "daemon-reload"], check=True)
         if not self._database_url():
             return
-        if self.unit.is_leader():
-            self._clear_migration_flag()
-            self._run_manage("migrate", "--noinput")
-            self._set_migration_flag()
-        elif not self._migration_complete():
-            self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
-            event.defer()
+        try:
+            if self.unit.is_leader():
+                self._clear_migration_flag()
+                self._run_manage("migrate", "--noinput")
+                self._set_migration_flag()
+            elif not self._migration_complete():
+                self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+                event.defer()
+                return
+            self._run_manage("collectstatic", "--noinput")
+            self._reload_gunicorn()
+        except subprocess.CalledProcessError as e:
+            logger.error("Management command failed during charm upgrade: %s", e)
+            self.unit.status = ops.BlockedStatus("Charm upgrade failed — check logs")
             return
-        self._run_manage("collectstatic", "--noinput")
-        self._reload_gunicorn()
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
         if self.model.relations.get("certificates") and not self.config.get("external-hostname"):
@@ -181,17 +187,22 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
         self.unit.status = ops.MaintenanceStatus("Configuring database")
         self._write_env_file()
-        if self.unit.is_leader():
-            self._run_manage("migrate", "--noinput")
-            self._run_manage("collectstatic", "--noinput")
-            self._set_migration_flag()
-            self._start_services()
-        elif self._migration_complete():
-            self._run_manage("collectstatic", "--noinput")
-            self._start_services()
-        else:
-            self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
-            event.defer()
+        try:
+            if self.unit.is_leader():
+                self._run_manage("migrate", "--noinput")
+                self._run_manage("collectstatic", "--noinput")
+                self._set_migration_flag()
+                self._start_services()
+            elif self._migration_complete():
+                self._run_manage("collectstatic", "--noinput")
+                self._start_services()
+            else:
+                self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+                event.defer()
+                return
+        except subprocess.CalledProcessError as e:
+            logger.error("Management command failed during database setup: %s", e)
+            self.unit.status = ops.BlockedStatus("Database setup failed — check logs")
             return
         # Re-publish ingress requirements now that ports are open.
         self._publish_django_ingress_requirements()
@@ -213,7 +224,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if not self._database_url():
             return
         if self._migration_complete() and not self._gunicorn_running():
-            self._run_manage("collectstatic", "--noinput")
+            try:
+                self._run_manage("collectstatic", "--noinput")
+            except subprocess.CalledProcessError as e:
+                logger.error("collectstatic failed: %s", e)
+                self.unit.status = ops.BlockedStatus("collectstatic failed — check logs")
+                return
             self._start_services()
 
     # ── Certificates relation ─────────────────────────────────────────────────
@@ -229,8 +245,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
         CA_FILE.write_text(event.ca.raw)
         private_key = self.certificates.get_private_key()
         if private_key:
-            KEY_FILE.write_bytes(private_key.raw.encode())
-            os.chmod(KEY_FILE, 0o600)
+            old_umask = os.umask(0o177)
+            try:
+                KEY_FILE.write_bytes(private_key.raw.encode())
+            finally:
+                os.umask(old_umask)
         self._write_gunicorn_config()
         self._reload_gunicorn()
         self._publish_django_ingress_requirements()
@@ -339,7 +358,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if not (endpoints and username):
             return ""
         host_port = endpoints.split(",")[0]
-        return f"postgresql://{username}:{password}@{host_port}/{database}"
+        return f"postgresql://{username}:{quote(password, safe='')}@{host_port}/{database}"
 
     def _write_env_file(self) -> None:
         """Write environment variables to /etc/terrasquid/terrasquid.env."""
@@ -350,16 +369,18 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_append_config = self.config.get("squid-append-config", "")
         squid_default_deny = self.config.get("squid-default-deny", True)
         squid_pinned_config_version = self.config.get("squid-pinned-config-version", 0)
+
         content = textwrap.dedent(f"""\
             DATABASE_URL={db_url}
             SECRET_KEY={secret_key}
             ALLOWED_HOSTS=*
             DJANGO_SETTINGS_MODULE=terrasquid.settings
+            DJANGO_ADMIN_ENABLED=true
             JUJU_UNIT_NAME={self.unit.name}
             SQUID_PORT={squid_port}
             SQUID_PREPEND_CONFIG={squid_prepend_config}
             SQUID_APPEND_CONFIG={squid_append_config}
-            SQUID_DEFAULT_DENY={squid_default_deny}
+            SQUID_DEFAULT_DENY={'true' if squid_default_deny else 'false'}
             SQUID_PINNED_CONFIG_VERSION={squid_pinned_config_version}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
@@ -374,8 +395,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return key_file.read_text().strip()
         key = secrets.token_hex(50)
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
-        key_file.write_text(key)
-        os.chmod(key_file, 0o600)
+        old_umask = os.umask(0o177)
+        try:
+            key_file.write_text(key)
+        finally:
+            os.umask(old_umask)
         return key
 
     def _django_env(self) -> dict:
@@ -428,12 +452,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             f'bind = "[::]:{api_port}"\n'
             f"workers = {workers}\n"
             "timeout = 120\n"
-            'worker_class = "sync"\n'
-            'accesslog = "/var/log/gunicorn-access.log"\n'
-            'errorlog = "/var/log/gunicorn-error.log"\n'
-            "access_log_format = (\n"
-            '    \'%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs\'\n'
-            ")\n" + ssl_config
+            'worker_class = "sync"\n' + ssl_config
         )
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
@@ -457,8 +476,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
                 terrasquid.wsgi:application
             Restart=on-failure
             RestartSec=5s
-            StandardOutput=append:/var/log/gunicorn-access.log
-            StandardError=append:/var/log/gunicorn-error.log
+            StandardOutput=journal
+            StandardError=journal
 
             [Install]
             WantedBy=multi-user.target
@@ -488,7 +507,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
             [Timer]
             OnBootSec=10s
-            OnUnitActiveSec=5s
+            OnUnitActiveSec=30s
             Unit={SQUID_WATCHER_SERVICE}.service
 
             [Install]
@@ -512,19 +531,6 @@ class SquidAsAServiceCharm(ops.CharmBase):
         result = subprocess.run(["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True)
         return result.returncode == 0
 
-    def _get_ipv4_bind_address(self, relation_name: str) -> str | None:
-        """Return the first IPv4 bind address for a relation, or None."""
-        binding = self.model.get_binding(relation_name)
-        if binding is None:
-            return None
-        for iface in binding.network.interfaces:
-            try:
-                if isinstance(ipaddress.ip_address(str(iface.address)), ipaddress.IPv4Address):
-                    return str(iface.address)
-            except ValueError:
-                continue
-        return None
-
     def _publish_django_ingress_requirements(self) -> None:
         """Publish ingress requirements for the Django API.
 
@@ -534,14 +540,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """
         api_port = int(self.config.get("api-port", 8080))
         scheme = "https" if CERT_FILE.exists() else "http"
-        ip = self._get_ipv4_bind_address("django-ingress")
-        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme, ip=ip)
+        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme)
 
     def _publish_squid_ingress_requirements(self) -> None:
         """Publish ingress requirements for Squid, all units."""
         squid_port = int(self.config.get("squid-port", 3128))
-        ip = self._get_ipv4_bind_address("squid-ingress")
-        self.squid_ingress.provide_ingress_requirements(port=squid_port, ip=ip)
+        self.squid_ingress.provide_ingress_requirements(port=squid_port)
 
     def _open_ports(self) -> None:
         squid_port = int(self.config.get("squid-port", 3128))
@@ -598,7 +602,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
         try:
             data = json.loads(TERRASQUID_STATUS_FILE.read_text())
             return data.get("applied_config_version", 0)
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Failed to read applied config version from %s: %s", TERRASQUID_STATUS_FILE, e)
             return 0
 
     def _db_config_version(self) -> int:
@@ -615,8 +620,6 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _update_unit_status(self, applied_version: int) -> None:
         """Write the applied config version and reload timestamp to the status file."""
-        from datetime import datetime
-
         status = {
             "applied_config_version": applied_version,
             "last_reload": datetime.now(UTC).isoformat(),

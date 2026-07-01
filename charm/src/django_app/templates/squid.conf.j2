@@ -49,19 +49,27 @@ acl portgrp__{{ pg.service }}__{{ pg.name }} port {{ pg.ports | join(' ') }}
 
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
-{% if rule.src %}
+{% if rule.src is not none or rule.src_group is not none %}
+{% if rule.dst is not none or rule.dst_group is not none %}
+{% if rule.src is not none %}
 {% set src_acl = 'src__' + rule.src.service + '__' + rule.src.name %}
 {% else %}
 {% set src_acl = 'srcgrp__' + rule.src_group.service + '__' + rule.src_group.name %}
 {% endif %}
-{% if rule.dst %}
+{% if rule.dst is not none %}
 {% set dst_acl = 'dst__' + rule.dst.service + '__' + rule.dst.name %}
 {% set port_acl = 'dstport__' + rule.dst.service + '__' + rule.dst.name %}
 {% set action = 'allow' if rule.dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
 http_access {{ action }} {{ src_acl }} {{ dst_acl }} {{ port_acl }}
 {% else %}
-{% set dst_acl = 'dstgrp__' + rule.dst_group.service + '__' + rule.dst_group.name %}
-http_access allow {{ src_acl }} {{ dst_acl }}
+{% for member in rule.dst_group.destinations.all() %}
+{% set member_dst_acl = 'dst__' + member.service + '__' + member.name %}
+{% set member_port_acl = 'dstport__' + member.service + '__' + member.name %}
+{% set action = 'allow' if member.type in ('ALLOW', 'CONNECT') else 'deny' %}
+http_access {{ action }} {{ src_acl }} {{ member_dst_acl }} {{ member_port_acl }}
+{% endfor %}
+{% endif %}
+{% endif %}
 {% endif %}
 {% endfor %}
 

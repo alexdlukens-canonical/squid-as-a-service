@@ -60,22 +60,18 @@ def validate_squid_config(config_text: str) -> tuple[bool, str]:
     if not Path(squid_bin).exists():
         return True, ""
 
-    tmp_path = None
     try:
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as tmp:
-            tmp.write(config_text)
-            tmp_path = tmp.name
-        result = subprocess.run(
-            [squid_bin, "-k", "parse", "-f", tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False, (result.stderr or result.stdout).strip()
-        return True, ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir) / "squid.conf"
+            tmp_path.write_text(config_text)
+            result = subprocess.run(
+                [squid_bin, "-k", "parse", "-f", str(tmp_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return False, (result.stderr or result.stdout).strip()
+            return True, ""
     except subprocess.TimeoutExpired:
         return False, "Squid config validation timed out."
-    finally:
-        if tmp_path is not None:
-            Path(tmp_path).unlink(missing_ok=True)

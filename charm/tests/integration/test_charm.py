@@ -220,7 +220,7 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
         timeout=10,
     )
     juju.run(f"{app}/0", "reconfigure")
-    time.sleep(10)
+    _wait_for_applied_version(juju, app, 1)
 
     v1 = _get_applied_config_version(juju, app)
     assert v1 >= 1, "Expected at least one config version to have been applied"
@@ -235,8 +235,7 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
         timeout=10,
     )
     juju.run(f"{app}/0", "reconfigure")
-    time.sleep(15)
-
+    
     applied_after = _get_applied_config_version(juju, app)
     db_version_after = _get_db_config_version(juju, app)
 
@@ -271,7 +270,7 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
     proxies = {"http": squid_proxy}
 
     time.sleep(10)
-
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], 1)
     r_before = requests.get(
         "http://www.google.com",
         proxies=proxies,
@@ -310,7 +309,8 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
     )
     assert rule_resp.status_code == 201
 
-    time.sleep(60)
+    expected_version = _get_db_config_version(juju, deployed_charms["saas_app"]) + 1
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
 
     r_after = requests.get(
         "http://www.google.com",
@@ -328,14 +328,71 @@ def test_source_acl_service_isolation(juju, deployed_charms):
     key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b")
     headers_a = {"Authorization": f"Api-Key {key_a}"}
     headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
 
     requests.post(
-        f"{_api_url(address)}/sources/",
+        f"{base_url}/sources/",
         json={"name": "a-private", "cidr": ["10.1.0.0/16"]},
         headers=headers_a,
         timeout=10,
     )
 
-    response_b = requests.get(f"{_api_url(address)}/sources/", headers=headers_b, timeout=10)
+    response_b = requests.get(f"{base_url}/sources/", headers=headers_b, timeout=10)
     names = [r["name"] for r in response_b.json()]
     assert "a-private" not in names
+
+
+def test_source_acl_service_isolation_update(juju, deployed_charms):
+    """Service A cannot update resources created by service B."""
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    key_a = _create_api_key(juju, deployed_charms["saas_app"], "service-a-upd")
+    key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b-upd")
+    headers_a = {"Authorization": f"Api-Key {key_a}"}
+    headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
+
+    resp_create = requests.post(
+        f"{base_url}/sources/",
+        json={"name": "b-resource", "cidr": ["10.2.0.0/16"]},
+        headers=headers_b,
+        timeout=10,
+    )
+    assert resp_create.status_code == 201
+    resource_id = resp_create.json()["id"]
+
+    resp_update = requests.patch(
+        f"{base_url}/sources/{resource_id}/",
+        json={"cidr": ["10.3.0.0/16"]},
+        headers=headers_a,
+        timeout=10,
+    )
+    assert resp_update.status_code == 404
+
+
+def test_source_acl_service_isolation_delete(juju, deployed_charms):
+    """Service A cannot delete resources created by service B."""
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    key_a = _create_api_key(juju, deployed_charms["saas_app"], "service-a-del")
+    key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b-del")
+    headers_a = {"Authorization": f"Api-Key {key_a}"}
+    headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
+
+    resp_create = requests.post(
+        f"{base_url}/sources/",
+        json={"name": "b-resource-del", "cidr": ["10.4.0.0/16"]},
+        headers=headers_b,
+        timeout=10,
+    )
+    assert resp_create.status_code == 201
+    resource_id = resp_create.json()["id"]
+
+    resp_delete = requests.delete(
+        f"{base_url}/sources/{resource_id}/",
+        headers=headers_a,
+        timeout=10,
+    )
+    assert resp_delete.status_code == 404
+
+    resp_verify = requests.get(f"{base_url}/sources/{resource_id}/", headers=headers_b, timeout=10)
+    assert resp_verify.status_code == 200
