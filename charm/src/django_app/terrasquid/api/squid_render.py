@@ -22,7 +22,7 @@ def _get_jinja2_env() -> Environment:
 
 def render_squid_config(version: int | None = None) -> str:
     """Render the Squid configuration from the current database state."""
-    from .models import ACLRule, ConfigVersion, DestinationConfig, DestinationGroup, PortGroup, SourceACL, SourceGroup
+    from .models import ACLRule, ConfigVersion, DestinationConfig, SourceACL
 
     env = _get_jinja2_env()
     template = env.get_template("squid.conf.j2")
@@ -38,12 +38,9 @@ def render_squid_config(version: int | None = None) -> str:
         squid_append_config=settings.SQUID_APPEND_CONFIG,
         squid_default_deny=settings.SQUID_DEFAULT_DENY,
         source_acls=list(SourceACL.objects.order_by("service", "name")),
-        source_groups=list(SourceGroup.objects.prefetch_related("sources").order_by("service", "name")),
-        destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").order_by("service", "name")),
-        destination_groups=list(DestinationGroup.objects.prefetch_related("destinations").order_by("service", "name")),
-        port_groups=list(PortGroup.objects.order_by("service", "name")),
+        destination_configs=list(DestinationConfig.objects.order_by("service", "name")),
         acl_rules=list(
-            ACLRule.objects.select_related("src", "src_group", "dst", "dst_group").order_by(
+            ACLRule.objects.prefetch_related("sources", "destinations").order_by(
                 "priority", "service", "name"
             )
         ),

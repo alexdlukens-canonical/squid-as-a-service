@@ -14,13 +14,6 @@ coredump_dir /var/spool/squid
 acl src__{{ src.service }}__{{ src.name }} src {{ src.cidr | join(' ') }}
 {% endfor %}
 
-# ======= Source Groups =======
-{% for grp in source_groups %}
-{% for member in grp.sources.all() %}
-acl srcgrp__{{ grp.service }}__{{ grp.name }} src {{ member.cidr | join(' ') }}
-{% endfor %}
-{% endfor %}
-
 # ======= Destination ACLs =======
 {% for dst in destination_configs %}
 {% if dst.is_cidr %}
@@ -31,46 +24,14 @@ acl dst__{{ dst.service }}__{{ dst.name }} dstdomain {{ dst.dst }}
 acl dstport__{{ dst.service }}__{{ dst.name }} port {{ dst.effective_ports() | join(' ') }}
 {% endfor %}
 
-# ======= Destination Groups =======
-{% for grp in destination_groups %}
-{% for member in grp.destinations.all() %}
-{% if member.is_cidr %}
-acl dstgrp__{{ grp.service }}__{{ grp.name }} dst {{ member.dst }}
-{% else %}
-acl dstgrp__{{ grp.service }}__{{ grp.name }} dstdomain {{ member.dst }}
-{% endif %}
-{% endfor %}
-{% endfor %}
-
-# ======= Port Groups =======
-{% for pg in port_groups %}
-acl portgrp__{{ pg.service }}__{{ pg.name }} port {{ pg.ports | join(' ') }}
-{% endfor %}
-
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
-{% if rule.src is not none or rule.src_group is not none %}
-{% if rule.dst is not none or rule.dst_group is not none %}
-{% if rule.src is not none %}
-{% set src_acl = 'src__' + rule.src.service + '__' + rule.src.name %}
-{% else %}
-{% set src_acl = 'srcgrp__' + rule.src_group.service + '__' + rule.src_group.name %}
-{% endif %}
-{% if rule.dst is not none %}
-{% set dst_acl = 'dst__' + rule.dst.service + '__' + rule.dst.name %}
-{% set port_acl = 'dstport__' + rule.dst.service + '__' + rule.dst.name %}
-{% set action = 'allow' if rule.dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
-http_access {{ action }} {{ src_acl }} {{ dst_acl }} {{ port_acl }}
-{% else %}
-{% for member in rule.dst_group.destinations.all() %}
-{% set member_dst_acl = 'dst__' + member.service + '__' + member.name %}
-{% set member_port_acl = 'dstport__' + member.service + '__' + member.name %}
-{% set action = 'allow' if member.type in ('ALLOW', 'CONNECT') else 'deny' %}
-http_access {{ action }} {{ src_acl }} {{ member_dst_acl }} {{ member_port_acl }}
+{% for dst in rule.destinations.all() %}
+{% set action = 'allow' if dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
+{% for src in rule.sources.all() %}
+http_access {{ action }} src__{{ src.service }}__{{ src.name }} dst__{{ dst.service }}__{{ dst.name }} dstport__{{ dst.service }}__{{ dst.name }}
 {% endfor %}
-{% endif %}
-{% endif %}
-{% endif %}
+{% endfor %}
 {% endfor %}
 
 {% if squid_append_config %}

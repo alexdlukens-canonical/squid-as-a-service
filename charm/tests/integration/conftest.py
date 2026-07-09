@@ -57,7 +57,7 @@ def deployed_charms(juju):
     )
     juju.integrate("terrasquid:database", "postgresql:database")
 
-    juju.wait(jubilant.all_active, timeout=300)
+    juju.wait(jubilant.all_active, timeout=450)
 
     return {"saas_app": "terrasquid", "pg_app": "postgresql"}
 

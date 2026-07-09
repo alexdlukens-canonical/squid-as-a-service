@@ -160,56 +160,6 @@ class TestSourceACLEndpoints(TestCase):
         assert response.json() == []
 
 
-class TestPortGroupEndpoints(TestCase):
-    """Tests for /api/v1/port-groups/ CRUD."""
-
-    def setUp(self) -> None:
-        self.client, self.api_key, self.raw_key = _make_client()
-
-    def test_create_port_group(self) -> None:
-        """POST /port-groups/ creates a new PortGroup."""
-        with (
-            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
-            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
-        ):
-            response = self.client.post(
-                "/api/v1/port-groups/",
-                {"name": "web-ports", "ports": [80, 443, 8080]},
-                format="json",
-            )
-        assert response.status_code == 201
-        assert response.json()["ports"] == [80, 443, 8080]
-
-    def test_invalid_port_returns_400(self) -> None:
-        """Port outside 1–65535 should return 400."""
-        response = self.client.post(
-            "/api/v1/port-groups/",
-            {"name": "bad-port", "ports": [0, 70000]},
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_string_port_value_returns_400(self) -> None:
-        """String port values should return 400, not TypeError."""
-        response = self.client.post(
-            "/api/v1/port-groups/",
-            {"name": "string-port", "ports": ["80", "443"]},
-            format="json",
-        )
-        assert response.status_code == 400
-
-    def test_duplicate_ports_in_array(self) -> None:
-        """Duplicate ports in array should be allowed (or deduplicated by backend)."""
-        with patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")):
-            with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
-                response = self.client.post(
-                    "/api/v1/port-groups/",
-                    {"name": "dup-ports", "ports": [80, 80, 443]},
-                    format="json",
-                )
-        assert response.status_code == 201
-
-
 class TestDestinationConfigEndpoints(TestCase):
     """Tests for /api/v1/destinations/ CRUD."""
 
@@ -249,13 +199,13 @@ class TestDestinationConfigEndpoints(TestCase):
             dst="example.com",
             type="ALLOW",
         )
-        ACLRule.objects.create(
+        rule = ACLRule.objects.create(
             service="test-service",
             name="test-rule",
             key_prefix="ab12cd34",
-            src=src,
-            dst=dst,
         )
+        rule.sources.add(src)
+        rule.destinations.add(dst)
         with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
             response = self.client.delete(f"/api/v1/destinations/{dst.id}/")
         assert response.status_code == 409
@@ -287,7 +237,7 @@ class TestACLRuleEndpoints(TestCase):
             )
 
     def test_create_acl_rule(self) -> None:
-        """POST /acl-rules/ creates a rule linking a source and destination."""
+        """POST /acl-rules/ creates a rule linking sources and destinations."""
         with (
             patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
             patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
@@ -296,35 +246,51 @@ class TestACLRuleEndpoints(TestCase):
                 "/api/v1/acl-rules/",
                 {
                     "name": "allow-corp-to-ubuntu",
-                    "src": str(self.src.id),
-                    "dst": str(self.dst.id),
+                    "sources": [str(self.src.id)],
+                    "destinations": [str(self.dst.id)],
                 },
                 format="json",
             )
         assert response.status_code == 201
+        data = response.json()
+        assert data["sources"] == [str(self.src.id)]
+        assert data["destinations"] == [str(self.dst.id)]
 
-    def test_acl_rule_requires_exactly_one_src(self) -> None:
-        """ACL rule with both src and src_group should return 400."""
-        from terrasquid.api.models import SourceGroup
-
-        grp = SourceGroup.objects.create(service="test-service", name="grp", key_prefix="ab12cd34")
+    def test_acl_rule_requires_at_least_one_source(self) -> None:
+        """ACL rule with an empty sources list returns 400."""
         response = self.client.post(
             "/api/v1/acl-rules/",
-            {
-                "name": "bad-rule",
-                "src": str(self.src.id),
-                "src_group": str(grp.id),
-                "dst": str(self.dst.id),
-            },
+            {"name": "bad-rule", "sources": [], "destinations": [str(self.dst.id)]},
             format="json",
         )
         assert response.status_code == 400
 
-    def test_acl_rule_requires_exactly_one_dst(self) -> None:
-        """ACL rule with neither dst nor dst_group should return 400."""
+    def test_acl_rule_requires_at_least_one_destination(self) -> None:
+        """ACL rule with no destinations returns 400."""
         response = self.client.post(
             "/api/v1/acl-rules/",
-            {"name": "bad-rule2", "src": str(self.src.id)},
+            {"name": "bad-rule2", "sources": [str(self.src.id)]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_acl_rule_rejects_foreign_source(self) -> None:
+        """ACL rule referencing a source from another service returns 400."""
+        from terrasquid.api.models import SourceACL
+
+        foreign = SourceACL.objects.create(
+            service="other-service",
+            name="foreign-src",
+            key_prefix="ffffffff",
+            cidr=["10.0.0.0/8"],
+        )
+        response = self.client.post(
+            "/api/v1/acl-rules/",
+            {
+                "name": "cross-service",
+                "sources": [str(foreign.id)],
+                "destinations": [str(self.dst.id)],
+            },
             format="json",
         )
         assert response.status_code == 400
@@ -343,8 +309,8 @@ class TestACLRuleEndpoints(TestCase):
                 "/api/v1/acl-rules/",
                 {
                     "name": "allow-corp-to-ubuntu",
-                    "src": str(self.src.id),
-                    "dst": str(self.dst.id),
+                    "sources": [str(self.src.id)],
+                    "destinations": [str(self.dst.id)],
                 },
                 format="json",
             )

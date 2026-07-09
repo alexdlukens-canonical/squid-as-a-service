@@ -3,7 +3,6 @@
 import ipaddress
 import uuid
 
-from django.core.exceptions import ValidationError
 from django.db import models
 
 NAME_PATTERN = r"^[a-zA-Z0-9_-]+$"
@@ -37,32 +36,6 @@ class SourceACL(BaseResource):
         return f"{self.service}/{self.name}"
 
 
-class SourceGroup(BaseResource):
-    """A named group of SourceACL entries for use in ACL rules."""
-
-    sources = models.ManyToManyField(SourceACL, blank=True, related_name="source_groups")
-
-    class Meta:
-        unique_together = [("service", "name")]
-
-    def __str__(self) -> str:
-        """Return the string representation."""
-        return f"{self.service}/{self.name}"
-
-
-class PortGroup(BaseResource):
-    """A named group of TCP port numbers."""
-
-    ports = models.JSONField(default=list)
-
-    class Meta:
-        unique_together = [("service", "name")]
-
-    def __str__(self) -> str:
-        """Return the string representation."""
-        return f"{self.service}/{self.name}"
-
-
 class DestinationConfig(BaseResource):
     """A destination rule specifying a host/CIDR and the action to apply."""
 
@@ -74,7 +47,6 @@ class DestinationConfig(BaseResource):
     dst = models.TextField()
     type = models.CharField(max_length=10, choices=ActionType.choices)
     ports = models.JSONField(default=list, null=True, blank=True)
-    port_groups = models.ManyToManyField(PortGroup, blank=True, related_name="destination_configs")
 
     class Meta:
         unique_together = [("service", "name")]
@@ -93,50 +65,19 @@ class DestinationConfig(BaseResource):
             return False
 
     def effective_ports(self) -> list[int]:
-        """Return the merged list of ports from direct ports and port groups."""
+        """Return the configured ports, defaulting by action type when none are set."""
         result: set[int] = set(self.ports or [])
-        for pg in self.port_groups.all():
-            result.update(pg.ports)
         if not result:
             result = {443} if self.type == self.ActionType.CONNECT else {80}
         return sorted(result)
 
 
-class DestinationGroup(BaseResource):
-    """A named group of DestinationConfig entries for use in ACL rules."""
-
-    destinations = models.ManyToManyField(DestinationConfig, blank=True, related_name="destination_groups")
-
-    class Meta:
-        unique_together = [("service", "name")]
-
-    def __str__(self) -> str:
-        """Return the string representation."""
-        return f"{self.service}/{self.name}"
-
-
 class ACLRule(BaseResource):
-    """A Squid ACL rule pairing a source and destination with a priority."""
+    """A Squid ACL rule pairing sources and destinations with a priority."""
 
     priority = models.IntegerField(default=100)
-    src = models.ForeignKey(SourceACL, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules")
-    src_group = models.ForeignKey(
-        SourceGroup, null=True, blank=True, on_delete=models.PROTECT, related_name="src_rules"
-    )
-    dst = models.ForeignKey(
-        DestinationConfig,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="dst_rules",
-    )
-    dst_group = models.ForeignKey(
-        DestinationGroup,
-        null=True,
-        blank=True,
-        on_delete=models.PROTECT,
-        related_name="dst_rules",
-    )
+    sources = models.ManyToManyField(SourceACL, related_name="rules")
+    destinations = models.ManyToManyField(DestinationConfig, related_name="rules")
 
     class Meta:
         unique_together = [("service", "name")]
@@ -144,23 +85,6 @@ class ACLRule(BaseResource):
     def __str__(self) -> str:
         """Return the string representation."""
         return f"{self.service}/{self.name}"
-
-    def clean(self) -> None:
-        """Validate mutual exclusivity constraints on src/src_group and dst/dst_group."""
-        has_src = self.src is not None
-        has_src_group = self.src_group is not None
-        if has_src == has_src_group:
-            raise ValidationError({"src": "Exactly one of src or src_group must be provided."})
-
-        has_dst = self.dst is not None
-        has_dst_group = self.dst_group is not None
-        if has_dst == has_dst_group:
-            raise ValidationError({"dst": "Exactly one of dst or dst_group must be provided."})
-
-    def save(self, *args, **kwargs) -> None:
-        """Enforce validation before saving by calling full_clean()."""
-        self.full_clean()
-        super().save(*args, **kwargs)
 
 
 class ConfigVersion(models.Model):

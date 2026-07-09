@@ -8,10 +8,7 @@ from rest_framework import serializers
 from .models import (
     ACLRule,
     DestinationConfig,
-    DestinationGroup,
-    PortGroup,
     SourceACL,
-    SourceGroup,
 )
 
 
@@ -42,62 +39,8 @@ class SourceACLSerializer(BaseResourceSerializer):
         return value
 
 
-class SourceGroupSerializer(BaseResourceSerializer):
-    """Serializer for SourceGroup resources."""
-
-    sources = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=SourceACL.objects.all(), pk_field=serializers.UUIDField()
-    )
-
-    class Meta:
-        model = SourceGroup
-        fields = ["id", "service", "name", "key_prefix", "sources", "created_at", "updated_at"]
-
-    def validate_sources(self, value: list) -> list:
-        """Validate that all referenced SourceACL IDs exist and belong to the authenticated service."""
-        if not value:
-            raise serializers.ValidationError("At least one source is required.")
-        
-        request = self.context.get('request')
-        if not request:
-            raise serializers.ValidationError("Request context not available.")
-        
-        service = request.api_key.name
-        
-        for source_acl in value:
-            if source_acl.service != service:
-                raise serializers.ValidationError(
-                    f"Source '{source_acl.name}' belongs to service '{source_acl.service}', "
-                    f"not the authenticated service '{service}'."
-                )
-        
-        return value
-
-
-class PortGroupSerializer(BaseResourceSerializer):
-    """Serializer for PortGroup resources."""
-
-    class Meta:
-        model = PortGroup
-        fields = ["id", "service", "name", "key_prefix", "ports", "created_at", "updated_at"]
-
-    def validate_ports(self, value: list) -> list:
-        """Validate each port is an integer in the 1–65535 range."""
-        for port in value:
-            if not isinstance(port, int) or not 1 <= port <= 65535:
-                raise serializers.ValidationError(f"Each port must be an integer in the range 1–65535, got {port!r}.")
-        return value
-
-
 class DestinationConfigSerializer(BaseResourceSerializer):
     """Serializer for DestinationConfig resources."""
-
-    port_groups = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=PortGroup.objects.all(),
-        pk_field=serializers.UUIDField(),
-        required=False,
-    )
 
     class Meta:
         model = DestinationConfig
@@ -109,7 +52,6 @@ class DestinationConfigSerializer(BaseResourceSerializer):
             "dst",
             "type",
             "ports",
-            "port_groups",
             "created_at",
             "updated_at",
         ]
@@ -121,65 +63,19 @@ class DestinationConfigSerializer(BaseResourceSerializer):
             return value
         except ValueError:
             pass
-        if re.match(r"^(\*\.)?[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$", value):
+        if re.match(r"^(\*?\.)?[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$", value):
             return value
         raise serializers.ValidationError(f"'{value}' is not a valid CIDR or hostname.")
-
-
-class DestinationGroupSerializer(BaseResourceSerializer):
-    """Serializer for DestinationGroup resources."""
-
-    destinations = serializers.PrimaryKeyRelatedField(
-        many=True,
-        queryset=DestinationConfig.objects.all(),
-        pk_field=serializers.UUIDField(),
-    )
-
-    class Meta:
-        model = DestinationGroup
-        fields = [
-            "id",
-            "service",
-            "name",
-            "key_prefix",
-            "destinations",
-            "created_at",
-            "updated_at",
-        ]
-
-    def validate_destinations(self, value: list) -> list:
-        """Validate that at least one destination is provided."""
-        if not value:
-            raise serializers.ValidationError("At least one destination is required.")
-        return value
 
 
 class ACLRuleSerializer(BaseResourceSerializer):
     """Serializer for ACLRule resources."""
 
-    src = serializers.PrimaryKeyRelatedField(
-        queryset=SourceACL.objects.all(),
-        pk_field=serializers.UUIDField(),
-        required=False,
-        allow_null=True,
+    sources = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=SourceACL.objects.all(), pk_field=serializers.UUIDField()
     )
-    src_group = serializers.PrimaryKeyRelatedField(
-        queryset=SourceGroup.objects.all(),
-        pk_field=serializers.UUIDField(),
-        required=False,
-        allow_null=True,
-    )
-    dst = serializers.PrimaryKeyRelatedField(
-        queryset=DestinationConfig.objects.all(),
-        pk_field=serializers.UUIDField(),
-        required=False,
-        allow_null=True,
-    )
-    dst_group = serializers.PrimaryKeyRelatedField(
-        queryset=DestinationGroup.objects.all(),
-        pk_field=serializers.UUIDField(),
-        required=False,
-        allow_null=True,
+    destinations = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=DestinationConfig.objects.all(), pk_field=serializers.UUIDField()
     )
 
     class Meta:
@@ -190,33 +86,34 @@ class ACLRuleSerializer(BaseResourceSerializer):
             "name",
             "key_prefix",
             "priority",
-            "src",
-            "src_group",
-            "dst",
-            "dst_group",
+            "sources",
+            "destinations",
             "created_at",
             "updated_at",
         ]
 
-    def validate(self, attrs):
-        """Validate mutual exclusivity constraints on src/src_group and dst/dst_group."""
-        src = attrs.get("src")
-        src_group = attrs.get("src_group")
-        dst = attrs.get("dst")
-        dst_group = attrs.get("dst_group")
+    def validate_sources(self, value: list) -> list:
+        """Require at least one source, all belonging to the authenticated service."""
+        if not value:
+            raise serializers.ValidationError("At least one source is required.")
+        service = self.context["request"].api_key.name
+        for source_acl in value:
+            if source_acl.service != service:
+                raise serializers.ValidationError(
+                    f"Source '{source_acl.name}' belongs to service '{source_acl.service}', "
+                    f"not the authenticated service '{service}'."
+                )
+        return value
 
-        has_src = src is not None
-        has_src_group = src_group is not None
-        if has_src == has_src_group:
-            raise serializers.ValidationError(
-                {"src": "Exactly one of src or src_group must be provided."}
-            )
-
-        has_dst = dst is not None
-        has_dst_group = dst_group is not None
-        if has_dst == has_dst_group:
-            raise serializers.ValidationError(
-                {"dst": "Exactly one of dst or dst_group must be provided."}
-            )
-
-        return attrs
+    def validate_destinations(self, value: list) -> list:
+        """Require at least one destination, all belonging to the authenticated service."""
+        if not value:
+            raise serializers.ValidationError("At least one destination is required.")
+        service = self.context["request"].api_key.name
+        for destination in value:
+            if destination.service != service:
+                raise serializers.ValidationError(
+                    f"Destination '{destination.name}' belongs to service '{destination.service}', "
+                    f"not the authenticated service '{service}'."
+                )
+        return value

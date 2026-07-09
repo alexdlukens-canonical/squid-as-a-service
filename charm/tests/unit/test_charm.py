@@ -43,18 +43,20 @@ def base_state():
 class TestInstall:
     """Tests for the install event."""
 
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="test-key")
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
     @patch("pathlib.Path.mkdir")
-    def test_install_installs_squid(self, mock_mkdir, mock_units, no_subprocess, ctx, base_state):
+    def test_install_installs_squid(self, mock_mkdir, mock_units, mock_key, no_subprocess, ctx, base_state):
         """The install event should trigger Squid installation."""
         with ctx(ctx.on.install(), base_state) as mgr:
             mgr.run()
         apt_calls = [c for c in no_subprocess.call_args_list if "apt-get" in str(c)]
         assert len(apt_calls) == 1
 
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="test-key")
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
     @patch("pathlib.Path.mkdir")
-    def test_install_writes_systemd_units(self, mock_mkdir, mock_units, ctx, base_state):
+    def test_install_writes_systemd_units(self, mock_mkdir, mock_units, mock_key, ctx, base_state):
         """The install event should write systemd unit files."""
         with ctx(ctx.on.install(), base_state) as mgr:
             mgr.run()

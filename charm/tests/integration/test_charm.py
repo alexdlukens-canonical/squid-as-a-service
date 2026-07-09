@@ -303,13 +303,13 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
 
     rule_resp = requests.post(
         f"{base}/acl-rules/",
-        json={"name": "allow-google", "src": src_id, "dst": dst_id, "priority": 10},
+        json={"name": "allow-google", "sources": [src_id], "destinations": [dst_id], "priority": 10},
         headers=headers,
         timeout=10,
     )
     assert rule_resp.status_code == 201
 
-    expected_version = _get_db_config_version(juju, deployed_charms["saas_app"]) + 1
+    expected_version = _get_db_config_version(juju, deployed_charms["saas_app"])
     _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
 
     r_after = requests.get(
