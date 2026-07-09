@@ -8,6 +8,7 @@ import secrets
 import subprocess
 import textwrap
 from datetime import UTC, datetime
+from ipaddress import IPv4Address
 from pathlib import Path
 from urllib.parse import quote
 
@@ -540,12 +541,29 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """
         api_port = int(self.config.get("api-port", 8080))
         scheme = "https" if CERT_FILE.exists() else "http"
-        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme)
+        ip = self._unit_ipv4_address("django-ingress")
+        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme, ip=ip)
 
     def _publish_squid_ingress_requirements(self) -> None:
         """Publish ingress requirements for Squid, all units."""
         squid_port = int(self.config.get("squid-port", 3128))
-        self.squid_ingress.provide_ingress_requirements(port=squid_port)
+        ip = self._unit_ipv4_address("squid-ingress")
+        self.squid_ingress.provide_ingress_requirements(port=squid_port, ip=ip)
+
+    def _unit_ipv4_address(self, relation_name: str) -> str | None:
+        """Return the unit's IPv4 bind address for the given ingress relation.
+
+        The ingress library defaults to the binding's first bind address, which
+        may be IPv6. Explicitly select an IPv4 address so the ingress provider
+        addresses the unit over IPv4.
+        """
+        binding = self.model.get_binding(relation_name)
+        if binding is None:
+            return None
+        for interface in binding.network.interfaces:
+            if isinstance(interface.address, IPv4Address):
+                return str(interface.address)
+        return None
 
     def _open_ports(self) -> None:
         squid_port = int(self.config.get("squid-port", 3128))
