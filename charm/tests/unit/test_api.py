@@ -3,7 +3,7 @@
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from rest_framework_api_key.models import APIKey
 
@@ -326,6 +326,20 @@ class TestSquidConfigValidation(TestCase):
 
     def setUp(self) -> None:
         self.client, self.api_key, self.raw_key = _make_client()
+
+    @override_settings(SQUID_DEFAULT_DENY=True)
+    def test_render_includes_default_deny_when_enabled(self) -> None:
+        """The final deny-all rule is rendered when the option is enabled."""
+        from terrasquid.api.squid_render import render_squid_config
+
+        assert render_squid_config().rstrip().endswith("http_access deny all")
+
+    @override_settings(SQUID_DEFAULT_DENY=False)
+    def test_render_omits_default_deny_when_disabled(self) -> None:
+        """The final deny-all rule is omitted when the option is disabled."""
+        from terrasquid.api.squid_render import render_squid_config
+
+        assert "http_access deny all" not in render_squid_config()
 
     def test_render_uses_api_key_prefix_for_acl_names(self) -> None:
         """Render compact ACL identifiers independently of the API key's friendly name."""
