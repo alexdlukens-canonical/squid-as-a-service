@@ -4,27 +4,27 @@
 import json
 import logging
 import os
+import secrets
 import subprocess
 import textwrap
-from datetime import UTC
+from datetime import UTC, datetime
+from ipaddress import IPv4Address
 from pathlib import Path
+from urllib.parse import quote
 
 import ops
+from charmlibs.interfaces.tls_certificates import (
+    CertificateAvailableEvent,
+    CertificateDeniedEvent,
+    CertificateRequestAttributes,
+    TLSCertificatesRequiresV4,
+)
 from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseCreatedEvent,
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
-from charmlibs.interfaces.tls_certificates import (
-    CertificateAvailableEvent,
-    CertificateExpiringEvent,
-    CertificateInvalidatedEvent,
-    TLSCertificatesRequiresV4,
-    generate_csr,
-    generate_private_key,
-)
-
-import secrets
+from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
 import squid
 
@@ -56,7 +56,13 @@ class SquidAsAServiceCharm(ops.CharmBase):
         super().__init__(*args)
 
         self.database = DatabaseRequires(self, relation_name="database", database_name="terrasquid")
-        self.certificates = TLSCertificatesRequiresV4(self, "certificates")
+        _hostname = self.config.get("external-hostname", "")
+        _cert_requests = (
+            [CertificateRequestAttributes(common_name=_hostname, sans_dns=[_hostname])] if _hostname else []
+        )
+        self.certificates = TLSCertificatesRequiresV4(self, "certificates", certificate_requests=_cert_requests)
+        self.django_ingress = IngressPerAppRequirer(self, relation_name="django-ingress")
+        self.squid_ingress = IngressPerAppRequirer(self, relation_name="squid-ingress")
 
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
@@ -67,14 +73,17 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         self.framework.observe(self.database.on.database_created, self._on_database_created)
         self.framework.observe(self.database.on.endpoints_changed, self._on_database_endpoints_changed)
-        self.framework.observe(
-            self.on.database_relation_broken, self._on_database_relation_broken
-        )
+        self.framework.observe(self.on.database_relation_broken, self._on_database_relation_broken)
 
         self.framework.observe(self.on.certificates_relation_joined, self._on_certificates_relation_joined)
         self.framework.observe(self.certificates.on.certificate_available, self._on_certificate_available)
-        self.framework.observe(self.certificates.on.certificate_expiring, self._on_certificate_expiring)
-        self.framework.observe(self.certificates.on.certificate_invalidated, self._on_certificate_invalidated)
+        self.framework.observe(self.certificates.on.certificate_denied, self._on_certificate_denied)
+
+        self.framework.observe(self.on.django_ingress_relation_joined, self._on_django_ingress_relation_joined)
+        self.framework.observe(self.on.squid_ingress_relation_joined, self._on_squid_ingress_relation_joined)
+        self.framework.observe(self.on.leader_elected, self._on_leader_elected)
+
+        self.framework.observe(self.on.squid_aaas_peers_relation_changed, self._on_peers_relation_changed)
 
         self.framework.observe(self.on.create_key_action, self._on_create_key_action)
         self.framework.observe(self.on.revoke_key_action, self._on_revoke_key_action)
@@ -91,6 +100,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
         TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
+        self._get_or_generate_secret_key()
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
 
@@ -103,6 +113,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._reload_gunicorn()
         if self._gunicorn_running():
             self._open_ports()
+        self._publish_django_ingress_requirements()
+        self._publish_squid_ingress_requirements()
 
     def _on_start(self, _event: ops.StartEvent) -> None:
         if not self._database_url():
@@ -115,17 +127,32 @@ class SquidAsAServiceCharm(ops.CharmBase):
             subprocess.run(["systemctl", "stop", svc], capture_output=True)
         self.unit.set_ports()
 
-    def _on_upgrade_charm(self, _event: ops.UpgradeCharmEvent) -> None:
+    def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
-        if self._database_url():
-            self._run_manage("migrate", "--noinput")
+        if not self._database_url():
+            return
+        try:
+            if self.unit.is_leader():
+                self._clear_migration_flag()
+                self._run_manage("migrate", "--noinput")
+                self._set_migration_flag()
+            elif not self._migration_complete():
+                self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+                event.defer()
+                return
             self._run_manage("collectstatic", "--noinput")
             self._reload_gunicorn()
+        except subprocess.CalledProcessError as e:
+            logger.error("Management command failed during charm upgrade: %s", e)
+            self.unit.status = ops.BlockedStatus("Charm upgrade failed — check logs")
+            return
 
     def _on_collect_unit_status(self, event: ops.CollectStatusEvent) -> None:
         if self.model.relations.get("certificates") and not self.config.get("external-hostname"):
-            event.add_status(ops.BlockedStatus("external-hostname config required when certificates relation is configured"))
+            event.add_status(
+                ops.BlockedStatus("external-hostname config required when certificates relation is configured")
+            )
             return
         if not self._database_url():
             event.add_status(ops.WaitingStatus("Waiting for database relation"))
@@ -138,16 +165,49 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_status = "up" if squid.squid_service_running() else "down"
         config_version = self._read_applied_config_version()
         tls_status = "enabled" if CERT_FILE.exists() else "disabled"
-        event.add_status(ops.ActiveStatus(f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"))
+        event.add_status(
+            ops.ActiveStatus(
+                f"api: {api_status} | squid: {squid_status} | tls: {tls_status} | config v{config_version}"
+            )
+        )
+
+    # ── Ingress relations ─────────────────────────────────────────────────────
+
+    def _on_django_ingress_relation_joined(self, _event: ops.RelationJoinedEvent) -> None:
+        self._publish_django_ingress_requirements()
+
+    def _on_squid_ingress_relation_joined(self, _event: ops.RelationJoinedEvent) -> None:
+        self._publish_squid_ingress_requirements()
+
+    def _on_leader_elected(self, _event: ops.LeaderElectedEvent) -> None:
+        self._publish_django_ingress_requirements()
+        self._publish_squid_ingress_requirements()
 
     # ── Database relation ─────────────────────────────────────────────────────
 
     def _on_database_created(self, event: DatabaseCreatedEvent) -> None:
         self.unit.status = ops.MaintenanceStatus("Configuring database")
         self._write_env_file()
-        self._run_manage("migrate", "--noinput")
-        self._run_manage("collectstatic", "--noinput")
-        self._start_services()
+        try:
+            if self.unit.is_leader():
+                self._run_manage("migrate", "--noinput")
+                self._run_manage("collectstatic", "--noinput")
+                self._set_migration_flag()
+                self._start_services()
+            elif self._migration_complete():
+                self._run_manage("collectstatic", "--noinput")
+                self._start_services()
+            else:
+                self.unit.status = ops.WaitingStatus("Waiting for leader to complete migrations")
+                event.defer()
+                return
+        except subprocess.CalledProcessError as e:
+            logger.error("Management command failed during database setup: %s", e)
+            self.unit.status = ops.BlockedStatus("Database setup failed — check logs")
+            return
+        # Re-publish ingress requirements now that ports are open.
+        self._publish_django_ingress_requirements()
+        self._publish_squid_ingress_requirements()
 
     def _on_database_endpoints_changed(self, event: DatabaseEndpointsChangedEvent) -> None:
         self._write_env_file()
@@ -156,6 +216,22 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_database_relation_broken(self, _event: ops.RelationBrokenEvent) -> None:
         self.unit.status = ops.WaitingStatus("Database relation removed")
         subprocess.run(["systemctl", "stop", GUNICORN_SERVICE], capture_output=True)
+
+    # ── Peer relation ─────────────────────────────────────────────────────────
+
+    def _on_peers_relation_changed(self, _event: ops.RelationChangedEvent) -> None:
+        if self.unit.is_leader():
+            return
+        if not self._database_url():
+            return
+        if self._migration_complete() and not self._gunicorn_running():
+            try:
+                self._run_manage("collectstatic", "--noinput")
+            except subprocess.CalledProcessError as e:
+                logger.error("collectstatic failed: %s", e)
+                self.unit.status = ops.BlockedStatus("collectstatic failed — check logs")
+                return
+            self._start_services()
 
     # ── Certificates relation ─────────────────────────────────────────────────
 
@@ -166,54 +242,37 @@ class SquidAsAServiceCharm(ops.CharmBase):
     def _on_certificate_available(self, event: CertificateAvailableEvent) -> None:
         """Handle certificate availability."""
         TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
-        CERT_FILE.write_text(event.certificate)
-        CA_FILE.write_text(event.ca)
-        # Key must already exist as we generated it for CSR
+        CERT_FILE.write_text(event.certificate.raw)
+        CA_FILE.write_text(event.ca.raw)
+        private_key = self.certificates.get_private_key()
+        if private_key:
+            old_umask = os.umask(0o177)
+            try:
+                KEY_FILE.write_bytes(private_key.raw.encode())
+            finally:
+                os.umask(old_umask)
         self._write_gunicorn_config()
         self._reload_gunicorn()
+        self._publish_django_ingress_requirements()
         logger.info("Certificate available and Gunicorn reloaded")
 
-    def _on_certificate_expiring(self, event: CertificateExpiringEvent) -> None:
-        """Handle certificate expiration by requesting a new one."""
-        self._request_certificate()
-
-    def _on_certificate_invalidated(self, event: CertificateInvalidatedEvent) -> None:
-        """Handle certificate invalidation."""
+    def _on_certificate_denied(self, event: CertificateDeniedEvent) -> None:
+        """Handle certificate denial by removing stale cert files and reconfiguring."""
+        logger.warning("Certificate denied: %s", event.error)
         for f in (CERT_FILE, CA_FILE):
             if f.exists():
                 f.unlink()
         self._write_gunicorn_config()
         self._reload_gunicorn()
+        self._publish_django_ingress_requirements()
 
     def _request_certificate(self) -> None:
-        """Generate a CSR and request a certificate."""
+        """Sync the TLS certificate request with the relation data."""
         if not self.model.relations.get("certificates"):
             return
         if not self.config.get("external-hostname"):
             return
-
-        private_key = self._get_or_generate_private_key()
-        common_name = self.config.get("external-hostname")
-        if not common_name:
-            logger.warning("external-hostname config is required to request a certificate")
-            return
-        csr = generate_csr(
-            private_key=private_key,
-            common_name=common_name,
-            sans_dns=[common_name],
-        )
-        self.certificates.request_certificate_creation(certificate_signing_request=csr)
-
-    def _get_or_generate_private_key(self) -> bytes:
-        """Return the existing private key or generate a new one."""
-        TERRASQUID_CERTS_DIR.mkdir(parents=True, exist_ok=True)
-        if KEY_FILE.exists():
-            return KEY_FILE.read_bytes()
-        
-        key = generate_private_key()
-        KEY_FILE.write_bytes(key)
-        os.chmod(KEY_FILE, 0o600)
-        return key
+        self.certificates.sync()
 
     # ── Actions ──────────────────────────────────────────────────────────────
 
@@ -300,7 +359,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         if not (endpoints and username):
             return ""
         host_port = endpoints.split(",")[0]
-        return f"postgresql://{username}:{password}@{host_port}/{database}"
+        return f"postgresql://{username}:{quote(password, safe='')}@{host_port}/{database}"
 
     def _write_env_file(self) -> None:
         """Write environment variables to /etc/terrasquid/terrasquid.env."""
@@ -310,16 +369,20 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_prepend_config = self.config.get("squid-prepend-config", "")
         squid_append_config = self.config.get("squid-append-config", "")
         squid_default_deny = self.config.get("squid-default-deny", True)
+        squid_pinned_config_version = self.config.get("squid-pinned-config-version", 0)
+
         content = textwrap.dedent(f"""\
             DATABASE_URL={db_url}
             SECRET_KEY={secret_key}
             ALLOWED_HOSTS=*
             DJANGO_SETTINGS_MODULE=terrasquid.settings
+            DJANGO_ADMIN_ENABLED=true
             JUJU_UNIT_NAME={self.unit.name}
             SQUID_PORT={squid_port}
             SQUID_PREPEND_CONFIG={squid_prepend_config}
             SQUID_APPEND_CONFIG={squid_append_config}
-            SQUID_DEFAULT_DENY={squid_default_deny}
+            SQUID_DEFAULT_DENY={'true' if squid_default_deny else 'false'}
+            SQUID_PINNED_CONFIG_VERSION={squid_pinned_config_version}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
         TERRASQUID_ENV_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -333,8 +396,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return key_file.read_text().strip()
         key = secrets.token_hex(50)
         TERRASQUID_RUN_DIR.mkdir(parents=True, exist_ok=True)
-        key_file.write_text(key)
-        os.chmod(key_file, 0o600)
+        old_umask = os.umask(0o177)
+        try:
+            key_file.write_text(key)
+        finally:
+            os.umask(old_umask)
         return key
 
     def _django_env(self) -> dict:
@@ -351,12 +417,11 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _run_manage(self, *args: str) -> None:
         """Run a Django management command, raising on failure."""
+        logger.info("Running manage.py %s", " ".join(args))
         cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
         subprocess.run(cmd, check=True, env=self._django_env(), cwd=str(DJANGO_APP_DIR))
 
-    def _run_manage_capture(
-        self, *args: str, extra_env: dict | None = None
-    ) -> tuple[str, str]:
+    def _run_manage_capture(self, *args: str, extra_env: dict | None = None) -> tuple[str, str]:
         """Run a Django management command and return (stdout, stderr)."""
         cmd = [str(VENV_BIN / "python"), str(DJANGO_APP_DIR / "manage.py"), *args]
         env = self._django_env()
@@ -380,25 +445,16 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
         ssl_config = ""
         if CERT_FILE.exists() and KEY_FILE.exists():
-            ssl_config = textwrap.dedent(f"""\
-                certfile = "{CERT_FILE}"
-                keyfile = "{KEY_FILE}"
-            """)
+            ssl_config = f'certfile = "{CERT_FILE}"\nkeyfile = "{KEY_FILE}"\n'
             if CA_FILE.exists():
                 ssl_config += f'ca_certs = "{CA_FILE}"\n'
 
-        content = textwrap.dedent(f"""\
-            bind = "0.0.0.0:{api_port}"
-            workers = {workers}
-            timeout = 120
-            worker_class = "sync"
-            accesslog = "/var/log/gunicorn.log"
-            errorlog = "/var/log/gunicorn.log"
-            access_log_format = (
-                '%%(h)s %%(l)s %%(u)s %%(t)s "%%(r)s" %%(s)s %%(b)s "%%(f)s" %%(D)sµs'
-            )
-            {ssl_config}
-        """)
+        content = (
+            f'bind = "[::]:{api_port}"\n'
+            f"workers = {workers}\n"
+            "timeout = 120\n"
+            'worker_class = "sync"\n' + ssl_config
+        )
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
 
@@ -421,8 +477,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
                 terrasquid.wsgi:application
             Restart=on-failure
             RestartSec=5s
-            StandardOutput=append:/var/log/gunicorn.log
-            StandardError=append:/var/log/gunicorn.log
+            StandardOutput=journal
+            StandardError=journal
 
             [Install]
             WantedBy=multi-user.target
@@ -452,7 +508,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
             [Timer]
             OnBootSec=10s
-            OnUnitActiveSec=5s
+            OnUnitActiveSec=30s
             Unit={SQUID_WATCHER_SERVICE}.service
 
             [Install]
@@ -473,10 +529,41 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _gunicorn_running(self) -> bool:
         """Return True if the Gunicorn service is active."""
-        result = subprocess.run(
-            ["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True
-        )
+        result = subprocess.run(["systemctl", "is-active", "--quiet", GUNICORN_SERVICE], capture_output=True)
         return result.returncode == 0
+
+    def _publish_django_ingress_requirements(self) -> None:
+        """Publish ingress requirements for the Django API.
+
+        App-level data (port, scheme) is written only by the leader; the library
+        enforces this internally. Every unit must call this so it can publish its
+        own host/IP, allowing the ingress provider to load-balance across all units.
+        """
+        api_port = int(self.config.get("api-port", 8080))
+        scheme = "https" if CERT_FILE.exists() else "http"
+        ip = self._unit_ipv4_address("django-ingress")
+        self.django_ingress.provide_ingress_requirements(port=api_port, scheme=scheme, ip=ip)
+
+    def _publish_squid_ingress_requirements(self) -> None:
+        """Publish ingress requirements for Squid, all units."""
+        squid_port = int(self.config.get("squid-port", 3128))
+        ip = self._unit_ipv4_address("squid-ingress")
+        self.squid_ingress.provide_ingress_requirements(port=squid_port, ip=ip)
+
+    def _unit_ipv4_address(self, relation_name: str) -> str | None:
+        """Return the unit's IPv4 bind address for the given ingress relation.
+
+        The ingress library defaults to the binding's first bind address, which
+        may be IPv6. Explicitly select an IPv4 address so the ingress provider
+        addresses the unit over IPv4.
+        """
+        binding = self.model.get_binding(relation_name)
+        if binding is None:
+            return None
+        for interface in binding.network.interfaces:
+            if isinstance(interface.address, IPv4Address):
+                return str(interface.address)
+        return None
 
     def _open_ports(self) -> None:
         squid_port = int(self.config.get("squid-port", 3128))
@@ -486,8 +573,31 @@ class SquidAsAServiceCharm(ops.CharmBase):
             ops.Port("tcp", api_port),
         )
 
+    def _set_migration_flag(self) -> None:
+        """Write the db-migrated flag to peer application data (leader only)."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return
+        rel.data[self.app]["db-migrated"] = "true"
+
+    def _clear_migration_flag(self) -> None:
+        """Clear the db-migrated flag so followers wait for the new migration to complete."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return
+        rel.data[self.app]["db-migrated"] = ""
+
+    def _migration_complete(self) -> bool:
+        """Return True if the leader has signalled that migrations are complete."""
+        rel = self.model.get_relation("squid-aaas-peers")
+        if rel is None:
+            return True
+        return rel.data[self.app].get("db-migrated") == "true"
+
     def _sync_config_version_if_stale(self) -> None:
         """Re-render the Squid config and bump ConfigVersion if DB state diverges from the stored render."""
+        if not self.unit.is_leader():
+            return
         out, err = self._run_manage_capture(
             "shell",
             "-c",
@@ -510,7 +620,8 @@ class SquidAsAServiceCharm(ops.CharmBase):
         try:
             data = json.loads(TERRASQUID_STATUS_FILE.read_text())
             return data.get("applied_config_version", 0)
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error("Failed to read applied config version from %s: %s", TERRASQUID_STATUS_FILE, e)
             return 0
 
     def _db_config_version(self) -> int:
@@ -527,8 +638,6 @@ class SquidAsAServiceCharm(ops.CharmBase):
 
     def _update_unit_status(self, applied_version: int) -> None:
         """Write the applied config version and reload timestamp to the status file."""
-        from datetime import datetime
-
         status = {
             "applied_config_version": applied_version,
             "last_reload": datetime.now(UTC).isoformat(),

@@ -7,7 +7,6 @@ These tests deploy a real Juju model with PostgreSQL and verify that:
 - Basic CRUD on SourceACL resources works through the live API.
 """
 
-
 import time
 
 import jubilant
@@ -42,9 +41,7 @@ def test_charm_reaches_active_status(juju, deployed_charms):
     status = juju.status()
     app_status = status.apps[deployed_charms["saas_app"]]
     unit_status = app_status.units[f"{deployed_charms['saas_app']}/0"]
-    assert unit_status.workload_status.current == "active", (
-        f"Expected active, got: {unit_status.workload_status}"
-    )
+    assert unit_status.workload_status.current == "active", f"Expected active, got: {unit_status.workload_status}"
 
 
 def test_status_endpoint_is_accessible(juju, deployed_charms):
@@ -146,9 +143,7 @@ def test_revoke_api_key_action(juju, deployed_charms):
     response = requests.get(f"{_api_url(address)}/sources/", headers=headers, timeout=10)
     assert response.status_code == 200
 
-    task = juju.run(
-        f"{deployed_charms['saas_app']}/0", "revoke-key", params={"name": "revoke-test"}
-    )
+    task = juju.run(f"{deployed_charms['saas_app']}/0", "revoke-key", params={"name": "revoke-test"})
     assert task.success, f"revoke-key failed: {task.results}"
 
     response_after = requests.get(f"{_api_url(address)}/sources/", headers=headers, timeout=10)
@@ -160,9 +155,7 @@ def test_rotate_api_key_action(juju, deployed_charms):
     address = _unit_address(juju, deployed_charms["saas_app"])
     old_key = _create_api_key(juju, deployed_charms["saas_app"], "rotate-test")
 
-    task = juju.run(
-        f"{deployed_charms['saas_app']}/0", "rotate-key", params={"name": "rotate-test"}
-    )
+    task = juju.run(f"{deployed_charms['saas_app']}/0", "rotate-key", params={"name": "rotate-test"})
     assert task.success
     new_key = task.results["key"]
     assert new_key != old_key
@@ -181,6 +174,87 @@ def test_list_keys_action(juju, deployed_charms):
     assert "keys" in task.results
 
 
+def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
+    """Return the applied_config_version from the unit status endpoint."""
+    address = _unit_address(juju, app, unit_index)
+    response = requests.get(f"{_api_url(address)}/status/", timeout=10)
+    response.raise_for_status()
+    return response.json().get("applied_config_version", 0)
+
+
+def _wait_for_applied_version(
+    juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60
+) -> None:
+    """Poll until applied_config_version reaches expected_version."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        current = _get_applied_config_version(juju, app)
+        if current >= expected_version:
+            return
+        time.sleep(3)
+    current = _get_applied_config_version(juju, app)
+    raise AssertionError(
+        f"Applied version {current} did not reach {expected_version} within {timeout}s"
+    )
+
+
+def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
+    """Return the db_config_version from the unit status endpoint."""
+    address = _unit_address(juju, app, unit_index)
+    response = requests.get(f"{_api_url(address)}/status/", timeout=10)
+    response.raise_for_status()
+    return response.json().get("db_config_version", 0)
+
+
+def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
+    """When squid-pinned-config-version is set, the applied version must not advance beyond it."""
+    app = deployed_charms["saas_app"]
+    address = _unit_address(juju, app)
+    key = _create_api_key(juju, app, "pin-test")
+    headers = {"Authorization": f"Api-Key {key}"}
+
+    requests.post(
+        f"{_api_url(address)}/sources/",
+        json={"name": "pin-src-v1", "cidr": ["10.10.0.0/16"]},
+        headers=headers,
+        timeout=10,
+    )
+    juju.run(f"{app}/0", "reconfigure")
+    _wait_for_applied_version(juju, app, 1)
+
+    v1 = _get_applied_config_version(juju, app)
+    assert v1 >= 1, "Expected at least one config version to have been applied"
+
+    juju.config(app, {"squid-pinned-config-version": str(v1)})
+    juju.wait(jubilant.all_active, timeout=60)
+
+    requests.post(
+        f"{_api_url(address)}/sources/",
+        json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
+        headers=headers,
+        timeout=10,
+    )
+    juju.run(f"{app}/0", "reconfigure")
+    
+    applied_after = _get_applied_config_version(juju, app)
+    db_version_after = _get_db_config_version(juju, app)
+
+    assert db_version_after > v1, "DB version should have advanced after new resource was created"
+    assert applied_after == v1, (
+        f"Applied version {applied_after} should remain frozen at pinned version {v1}"
+    )
+
+    juju.config(app, {"squid-pinned-config-version": "0"})
+    juju.wait(jubilant.all_active, timeout=60)
+    juju.run(f"{app}/0", "reconfigure")
+    _wait_for_applied_version(juju, app, expected_version=db_version_after)
+
+    applied_unpinned = _get_applied_config_version(juju, app)
+    assert applied_unpinned == db_version_after, (
+        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {db_version_after}"
+    )
+
+
 def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
     """Adding an ACL rule must cause the watcher to apply it and Squid to allow matching traffic.
 
@@ -196,16 +270,14 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
     proxies = {"http": squid_proxy}
 
     time.sleep(10)
-
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], 1)
     r_before = requests.get(
         "http://www.google.com",
         proxies=proxies,
         timeout=10,
         allow_redirects=False,
     )
-    assert r_before.status_code == 403, (
-        f"Expected Squid to deny before rules, got {r_before.status_code}"
-    )
+    assert r_before.status_code == 403, f"Expected Squid to deny before rules, got {r_before.status_code}"
 
     key = _create_api_key(juju, deployed_charms["saas_app"], "proxy-acl-test")
     headers = {"Authorization": f"Api-Key {key}"}
@@ -231,13 +303,14 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
 
     rule_resp = requests.post(
         f"{base}/acl-rules/",
-        json={"name": "allow-google", "src": src_id, "dst": dst_id, "priority": 10},
+        json={"name": "allow-google", "sources": [src_id], "destinations": [dst_id], "priority": 10},
         headers=headers,
         timeout=10,
     )
     assert rule_resp.status_code == 201
 
-    time.sleep(60)
+    expected_version = _get_db_config_version(juju, deployed_charms["saas_app"])
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
 
     r_after = requests.get(
         "http://www.google.com",
@@ -245,9 +318,7 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
         timeout=10,
         allow_redirects=False,
     )
-    assert r_after.status_code != 403, (
-        f"Expected Squid to allow after rules, got {r_after.status_code}"
-    )
+    assert r_after.status_code != 403, f"Expected Squid to allow after rules, got {r_after.status_code}"
 
 
 def test_source_acl_service_isolation(juju, deployed_charms):
@@ -257,14 +328,71 @@ def test_source_acl_service_isolation(juju, deployed_charms):
     key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b")
     headers_a = {"Authorization": f"Api-Key {key_a}"}
     headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
 
     requests.post(
-        f"{_api_url(address)}/sources/",
+        f"{base_url}/sources/",
         json={"name": "a-private", "cidr": ["10.1.0.0/16"]},
         headers=headers_a,
         timeout=10,
     )
 
-    response_b = requests.get(f"{_api_url(address)}/sources/", headers=headers_b, timeout=10)
+    response_b = requests.get(f"{base_url}/sources/", headers=headers_b, timeout=10)
     names = [r["name"] for r in response_b.json()]
     assert "a-private" not in names
+
+
+def test_source_acl_service_isolation_update(juju, deployed_charms):
+    """Service A cannot update resources created by service B."""
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    key_a = _create_api_key(juju, deployed_charms["saas_app"], "service-a-upd")
+    key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b-upd")
+    headers_a = {"Authorization": f"Api-Key {key_a}"}
+    headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
+
+    resp_create = requests.post(
+        f"{base_url}/sources/",
+        json={"name": "b-resource", "cidr": ["10.2.0.0/16"]},
+        headers=headers_b,
+        timeout=10,
+    )
+    assert resp_create.status_code == 201
+    resource_id = resp_create.json()["id"]
+
+    resp_update = requests.patch(
+        f"{base_url}/sources/{resource_id}/",
+        json={"cidr": ["10.3.0.0/16"]},
+        headers=headers_a,
+        timeout=10,
+    )
+    assert resp_update.status_code == 404
+
+
+def test_source_acl_service_isolation_delete(juju, deployed_charms):
+    """Service A cannot delete resources created by service B."""
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    key_a = _create_api_key(juju, deployed_charms["saas_app"], "service-a-del")
+    key_b = _create_api_key(juju, deployed_charms["saas_app"], "service-b-del")
+    headers_a = {"Authorization": f"Api-Key {key_a}"}
+    headers_b = {"Authorization": f"Api-Key {key_b}"}
+    base_url = _api_url(address)
+
+    resp_create = requests.post(
+        f"{base_url}/sources/",
+        json={"name": "b-resource-del", "cidr": ["10.4.0.0/16"]},
+        headers=headers_b,
+        timeout=10,
+    )
+    assert resp_create.status_code == 201
+    resource_id = resp_create.json()["id"]
+
+    resp_delete = requests.delete(
+        f"{base_url}/sources/{resource_id}/",
+        headers=headers_a,
+        timeout=10,
+    )
+    assert resp_delete.status_code == 404
+
+    resp_verify = requests.get(f"{base_url}/sources/{resource_id}/", headers=headers_b, timeout=10)
+    assert resp_verify.status_code == 200

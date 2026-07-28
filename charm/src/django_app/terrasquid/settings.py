@@ -6,7 +6,12 @@ import dj_database_url
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-SECRET_KEY = os.environ.get("SECRET_KEY", "django-insecure-dev-only-change-in-production")
+SECRET_KEY = os.environ.get("SECRET_KEY")
+if not SECRET_KEY:
+    if os.environ.get("DEBUG", "false").lower() == "true":
+        SECRET_KEY = "django-insecure-dev-only-change-in-production"
+    else:
+        raise RuntimeError("SECRET_KEY environment variable must be set.")
 
 DEBUG = os.environ.get("DEBUG", "false").lower() == "true"
 
@@ -107,3 +112,4 @@ SQUID_APPEND_CONFIG = os.environ.get("SQUID_APPEND_CONFIG", "")
 SQUID_DEFAULT_DENY = os.environ.get("SQUID_DEFAULT_DENY", "True").lower() not in ("false", "0", "")
 SQUID_CONF_PATH = os.environ.get("SQUID_CONF_PATH", "/etc/squid/squid.conf")
 SQUID_BINARY = os.environ.get("SQUID_BINARY", "/usr/sbin/squid")
+SQUID_PINNED_CONFIG_VERSION = int(os.environ.get("SQUID_PINNED_CONFIG_VERSION", "0"))

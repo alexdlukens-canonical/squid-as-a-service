@@ -20,9 +20,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),
@@ -38,9 +36,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),
@@ -56,9 +52,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),
@@ -81,9 +75,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),
@@ -115,9 +107,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),
@@ -140,9 +130,7 @@ class Migration(migrations.Migration):
             fields=[
                 (
                     "id",
-                    models.UUIDField(
-                        default=uuid.uuid4, editable=False, primary_key=True, serialize=False
-                    ),
+                    models.UUIDField(default=uuid.uuid4, editable=False, primary_key=True, serialize=False),
                 ),
                 ("service", models.CharField(max_length=255)),
                 ("name", models.CharField(max_length=63)),

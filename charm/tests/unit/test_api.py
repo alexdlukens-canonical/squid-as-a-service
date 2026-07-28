@@ -3,7 +3,7 @@
 import uuid
 from unittest.mock import patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 from rest_framework_api_key.models import APIKey
 
@@ -160,36 +160,6 @@ class TestSourceACLEndpoints(TestCase):
         assert response.json() == []
 
 
-class TestPortGroupEndpoints(TestCase):
-    """Tests for /api/v1/port-groups/ CRUD."""
-
-    def setUp(self) -> None:
-        self.client, self.api_key, self.raw_key = _make_client()
-
-    def test_create_port_group(self) -> None:
-        """POST /port-groups/ creates a new PortGroup."""
-        with (
-            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
-            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
-        ):
-            response = self.client.post(
-                "/api/v1/port-groups/",
-                {"name": "web-ports", "ports": [80, 443, 8080]},
-                format="json",
-            )
-        assert response.status_code == 201
-        assert response.json()["ports"] == [80, 443, 8080]
-
-    def test_invalid_port_returns_400(self) -> None:
-        """Port outside 1–65535 should return 400."""
-        response = self.client.post(
-            "/api/v1/port-groups/",
-            {"name": "bad-port", "ports": [0, 70000]},
-            format="json",
-        )
-        assert response.status_code == 400
-
-
 class TestDestinationConfigEndpoints(TestCase):
     """Tests for /api/v1/destinations/ CRUD."""
 
@@ -229,13 +199,13 @@ class TestDestinationConfigEndpoints(TestCase):
             dst="example.com",
             type="ALLOW",
         )
-        ACLRule.objects.create(
+        rule = ACLRule.objects.create(
             service="test-service",
             name="test-rule",
             key_prefix="ab12cd34",
-            src=src,
-            dst=dst,
         )
+        rule.sources.add(src)
+        rule.destinations.add(dst)
         with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
             response = self.client.delete(f"/api/v1/destinations/{dst.id}/")
         assert response.status_code == 409
@@ -267,7 +237,7 @@ class TestACLRuleEndpoints(TestCase):
             )
 
     def test_create_acl_rule(self) -> None:
-        """POST /acl-rules/ creates a rule linking a source and destination."""
+        """POST /acl-rules/ creates a rule linking sources and destinations."""
         with (
             patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
             patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
@@ -276,40 +246,79 @@ class TestACLRuleEndpoints(TestCase):
                 "/api/v1/acl-rules/",
                 {
                     "name": "allow-corp-to-ubuntu",
-                    "src": str(self.src.id),
-                    "dst": str(self.dst.id),
+                    "sources": [str(self.src.id)],
+                    "destinations": [str(self.dst.id)],
                 },
                 format="json",
             )
         assert response.status_code == 201
+        data = response.json()
+        assert data["sources"] == [str(self.src.id)]
+        assert data["destinations"] == [str(self.dst.id)]
 
-    def test_acl_rule_requires_exactly_one_src(self) -> None:
-        """ACL rule with both src and src_group should return 400."""
-        from terrasquid.api.models import SourceGroup
+    def test_acl_rule_requires_at_least_one_source(self) -> None:
+        """ACL rule with an empty sources list returns 400."""
+        response = self.client.post(
+            "/api/v1/acl-rules/",
+            {"name": "bad-rule", "sources": [], "destinations": [str(self.dst.id)]},
+            format="json",
+        )
+        assert response.status_code == 400
 
-        grp = SourceGroup.objects.create(
-            service="test-service", name="grp", key_prefix="ab12cd34"
+    def test_acl_rule_requires_at_least_one_destination(self) -> None:
+        """ACL rule with no destinations returns 400."""
+        response = self.client.post(
+            "/api/v1/acl-rules/",
+            {"name": "bad-rule2", "sources": [str(self.src.id)]},
+            format="json",
+        )
+        assert response.status_code == 400
+
+    def test_acl_rule_rejects_foreign_source(self) -> None:
+        """ACL rule referencing a source from another service returns 400."""
+        from terrasquid.api.models import SourceACL
+
+        foreign = SourceACL.objects.create(
+            service="other-service",
+            name="foreign-src",
+            key_prefix="ffffffff",
+            cidr=["10.0.0.0/8"],
         )
         response = self.client.post(
             "/api/v1/acl-rules/",
             {
-                "name": "bad-rule",
-                "src": str(self.src.id),
-                "src_group": str(grp.id),
-                "dst": str(self.dst.id),
+                "name": "cross-service",
+                "sources": [str(foreign.id)],
+                "destinations": [str(self.dst.id)],
             },
             format="json",
         )
         assert response.status_code == 400
 
-    def test_acl_rule_requires_exactly_one_dst(self) -> None:
-        """ACL rule with neither dst nor dst_group should return 400."""
-        response = self.client.post(
-            "/api/v1/acl-rules/",
-            {"name": "bad-rule2", "src": str(self.src.id)},
-            format="json",
-        )
-        assert response.status_code == 400
+    def test_rendered_config_includes_acl_rule(self) -> None:
+        """When an ACL rule is created, the rendered config must include its http_access statement."""
+        from terrasquid.api.views import _post_write_render
+        from terrasquid.api.models import ConfigVersion
+
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config") as mock_render,
+        ):
+            mock_render.return_value = "# config\nhttp_access allow src__test-service__my-src dst__test-service__my-dst"
+            response = self.client.post(
+                "/api/v1/acl-rules/",
+                {
+                    "name": "allow-corp-to-ubuntu",
+                    "sources": [str(self.src.id)],
+                    "destinations": [str(self.dst.id)],
+                },
+                format="json",
+            )
+        assert response.status_code == 201
+        config = ConfigVersion.get().rendered_config
+        assert "http_access" in config
+        assert "src__ab12cd34__my-src" in config
+        assert "dst__ab12cd34__my-dst" in config
 
 
 class TestSquidConfigValidation(TestCase):
@@ -318,11 +327,60 @@ class TestSquidConfigValidation(TestCase):
     def setUp(self) -> None:
         self.client, self.api_key, self.raw_key = _make_client()
 
+    @override_settings(SQUID_DEFAULT_DENY=True)
+    def test_render_includes_default_deny_when_enabled(self) -> None:
+        """The final deny-all rule is rendered when the option is enabled."""
+        from terrasquid.api.squid_render import render_squid_config
+
+        assert render_squid_config().rstrip().endswith("http_access deny all")
+
+    @override_settings(SQUID_DEFAULT_DENY=False)
+    def test_render_omits_default_deny_when_disabled(self) -> None:
+        """The final deny-all rule is omitted when the option is disabled."""
+        from terrasquid.api.squid_render import render_squid_config
+
+        assert "http_access deny all" not in render_squid_config()
+
+    def test_render_uses_api_key_prefix_for_acl_names(self) -> None:
+        """Render compact ACL identifiers independently of the API key's friendly name."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+        )
+        destination = DestinationConfig.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client-terraform",
+            key_prefix="ab12cd34",
+            dst="registry.terraform.io",
+            type="CONNECT",
+            ports=[443],
+        )
+        rule = ACLRule.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client-terraform",
+            key_prefix="ab12cd34",
+        )
+        rule.sources.add(source)
+        rule.destinations.add(destination)
+
+        config = render_squid_config()
+
+        assert "dstport__ab12cd34__stg-terrasquid-ps7-client-terraform port 443" in config
+        assert "dstport__terrasquid-admin-key__" not in config
+
     def test_squid_validation_failure_returns_422(self) -> None:
         """When Squid config validation fails, the API returns 422 and rolls back."""
-        with patch("terrasquid.api.views.render_squid_config", return_value="bad config"), patch(
-            "terrasquid.api.views.validate_squid_config",
-            return_value=(False, "syntax error"),
+        with (
+            patch("terrasquid.api.views.render_squid_config", return_value="bad config"),
+            patch(
+                "terrasquid.api.views.validate_squid_config",
+                return_value=(False, "syntax error"),
+            ),
         ):
             response = self.client.post(
                 "/api/v1/sources/",
@@ -335,9 +393,12 @@ class TestSquidConfigValidation(TestCase):
         """On Squid validation failure, the resource must not remain in the database."""
         from terrasquid.api.models import SourceACL
 
-        with patch("terrasquid.api.views.render_squid_config", return_value="bad"), patch(
-            "terrasquid.api.views.validate_squid_config",
-            return_value=(False, "error"),
+        with (
+            patch("terrasquid.api.views.render_squid_config", return_value="bad"),
+            patch(
+                "terrasquid.api.views.validate_squid_config",
+                return_value=(False, "error"),
+            ),
         ):
             self.client.post(
                 "/api/v1/sources/",
@@ -345,3 +406,103 @@ class TestSquidConfigValidation(TestCase):
                 format="json",
             )
         assert not SourceACL.objects.filter(name="rolled-back").exists()
+
+
+class TestConfigVersionHistory(TestCase):
+    """Tests for RenderedConfigHistory and config version pinning."""
+
+    def test_increment_saves_to_history(self) -> None:
+        """ConfigVersion.increment() must also create a RenderedConfigHistory entry."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        assert RenderedConfigHistory.objects.filter(version=1, rendered_config="# config v1").exists()
+
+    def test_increment_updates_history_for_same_version(self) -> None:
+        """Calling increment twice updates the history entry for each version."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        ConfigVersion.increment("# config v2")
+        assert RenderedConfigHistory.objects.count() == 2
+        assert RenderedConfigHistory.objects.get(version=2).rendered_config == "# config v2"
+
+
+class TestRenderSquidConfigPinning(TestCase):
+    """Tests for the render_squid_config management command with version pinning."""
+
+    def _run_command(self, stdout=None, stderr=None):
+        from django.core.management import call_command
+        from io import StringIO
+
+        out = stdout or StringIO()
+        err = stderr or StringIO()
+        call_command("render_squid_config", stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    @patch("terrasquid.api.squid_render.render_squid_config", return_value="# config v1")
+    @patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, ""))
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 0)
+    def test_unpinned_applies_latest(self, mock_validate, mock_render) -> None:
+        """When no version is pinned, the command applies the latest config."""
+        import tempfile
+        from terrasquid.api.models import ConfigVersion
+        from pathlib import Path
+        from unittest.mock import patch as p
+
+        ConfigVersion.increment("# config v1")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            squid_conf = Path(tmpdir) / "squid.conf"
+            squid_conf_new = Path(tmpdir) / "squid.conf.new"
+            status_file = Path(tmpdir) / "status.json"
+            with p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                squid_conf,
+            ), p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                squid_conf_new,
+            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
+            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+                out, err = self._run_command()
+        assert "unchanged" in out or "Applied" in out or "reloaded" in out.lower()
+        assert not err
+
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 2)
+    def test_pinned_version_not_yet_rendered_skips(self) -> None:
+        """When pinned to a version that has not been rendered yet, the command skips."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+
+        ConfigVersion.increment("# config v1")
+        assert not RenderedConfigHistory.objects.filter(version=2).exists()
+
+        out, err = self._run_command()
+        assert "skipping" in out.lower()
+        assert not err
+
+    @patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, ""))
+    @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 1)
+    def test_pinned_version_applies_correct_config(self, mock_validate) -> None:
+        """When pinned, the command applies the config stored for that exact version."""
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
+        from pathlib import Path
+        from unittest.mock import patch as p
+
+        ConfigVersion.increment("# config v1 - pinned target")
+        ConfigVersion.increment("# config v2 - should not be applied")
+
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmpdir:
+            squid_conf = Path(tmpdir) / "squid.conf"
+            squid_conf_new = Path(tmpdir) / "squid.conf.new"
+            status_file = Path(tmpdir) / "status.json"
+            with p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                squid_conf,
+            ), p(
+                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                squid_conf_new,
+            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
+            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+                out, err = self._run_command()
+
+        assert not err

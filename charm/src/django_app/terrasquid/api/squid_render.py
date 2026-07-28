@@ -22,7 +22,7 @@ def _get_jinja2_env() -> Environment:
 
 def render_squid_config(version: int | None = None) -> str:
     """Render the Squid configuration from the current database state."""
-    from .models import ACLRule, ConfigVersion, DestinationConfig, DestinationGroup, PortGroup, SourceACL, SourceGroup
+    from .models import ACLRule, ConfigVersion, DestinationConfig, SourceACL
 
     env = _get_jinja2_env()
     template = env.get_template("squid.conf.j2")
@@ -38,12 +38,9 @@ def render_squid_config(version: int | None = None) -> str:
         squid_append_config=settings.SQUID_APPEND_CONFIG,
         squid_default_deny=settings.SQUID_DEFAULT_DENY,
         source_acls=list(SourceACL.objects.order_by("service", "name")),
-        source_groups=list(SourceGroup.objects.prefetch_related("sources").order_by("service", "name")),
-        destination_configs=list(DestinationConfig.objects.prefetch_related("port_groups").order_by("service", "name")),
-        destination_groups=list(DestinationGroup.objects.prefetch_related("destinations").order_by("service", "name")),
-        port_groups=list(PortGroup.objects.order_by("service", "name")),
+        destination_configs=list(DestinationConfig.objects.order_by("service", "name")),
         acl_rules=list(
-            ACLRule.objects.select_related("src", "src_group", "dst", "dst_group").order_by(
+            ACLRule.objects.prefetch_related("sources", "destinations").order_by(
                 "priority", "service", "name"
             )
         ),
@@ -60,21 +57,18 @@ def validate_squid_config(config_text: str) -> tuple[bool, str]:
     if not Path(squid_bin).exists():
         return True, ""
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".conf", delete=False) as tmp:
-        tmp.write(config_text)
-        tmp_path = tmp.name
-
     try:
-        result = subprocess.run(
-            [squid_bin, "-k", "parse", "-f", tmp_path],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-        if result.returncode != 0:
-            return False, (result.stderr or result.stdout).strip()
-        return True, ""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp_path = Path(tmpdir) / "squid.conf"
+            tmp_path.write_text(config_text)
+            result = subprocess.run(
+                [squid_bin, "-k", "parse", "-f", str(tmp_path)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            if result.returncode != 0:
+                return False, (result.stderr or result.stdout).strip()
+            return True, ""
     except subprocess.TimeoutExpired:
         return False, "Squid config validation timed out."
-    finally:
-        Path(tmp_path).unlink(missing_ok=True)

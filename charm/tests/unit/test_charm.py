@@ -43,18 +43,20 @@ def base_state():
 class TestInstall:
     """Tests for the install event."""
 
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="test-key")
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
     @patch("pathlib.Path.mkdir")
-    def test_install_installs_squid(self, mock_mkdir, mock_units, no_subprocess, ctx, base_state):
+    def test_install_installs_squid(self, mock_mkdir, mock_units, mock_key, no_subprocess, ctx, base_state):
         """The install event should trigger Squid installation."""
         with ctx(ctx.on.install(), base_state) as mgr:
             mgr.run()
         apt_calls = [c for c in no_subprocess.call_args_list if "apt-get" in str(c)]
         assert len(apt_calls) == 1
 
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="test-key")
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
     @patch("pathlib.Path.mkdir")
-    def test_install_writes_systemd_units(self, mock_mkdir, mock_units, ctx, base_state):
+    def test_install_writes_systemd_units(self, mock_mkdir, mock_units, mock_key, ctx, base_state):
         """The install event should write systemd unit files."""
         with ctx(ctx.on.install(), base_state) as mgr:
             mgr.run()
@@ -87,7 +89,7 @@ class TestDatabaseRelation:
     @patch("charm.SquidAsAServiceCharm._run_manage")
     @patch("charm.SquidAsAServiceCharm._write_env_file")
     def test_database_created_runs_migrate(self, mock_env, mock_manage, mock_start, ctx, base_state):
-        """database_created event should invoke migrate and collectstatic."""
+        """database_created event should invoke migrate and collectstatic on the leader unit."""
         db_rel = ops.testing.Relation(
             "database",
             remote_app_name="postgresql",
@@ -98,13 +100,13 @@ class TestDatabaseRelation:
                 "database": "terrasquid",
             },
         )
-        state = ops.testing.State(config=base_state.config, relations={db_rel})
+        state = ops.testing.State(config=base_state.config, relations={db_rel}, leader=True)
         with ctx(ctx.on.relation_changed(db_rel), state) as mgr:
             mgr.run()
         assert mock_manage.call_count == 2
         assert mock_manage.call_args_list == [
-            (('migrate', '--noinput'),),
-            (('collectstatic', '--noinput'),),
+            (("migrate", "--noinput"),),
+            (("collectstatic", "--noinput"),),
         ]
 
     def test_database_relation_broken_stops_gunicorn(self, no_subprocess, ctx, base_state):
@@ -147,9 +149,11 @@ class TestActions:
     @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("", "Error: key not found"))
     def test_create_key_action_fails_on_error(self, mock_manage, ctx, base_state):
         """create-key action should fail when the management command errors."""
-        with pytest.raises(ops.testing.ActionFailed):
-            with ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr:
-                mgr.run()
+        with (
+            pytest.raises(ops.testing.ActionFailed),
+            ctx(ctx.on.action("create-key", params={"name": "team-a"}), base_state) as mgr,
+        ):
+            mgr.run()
 
     @patch("charm.SquidAsAServiceCharm._run_manage_capture", return_value=("http_port 3128\n", ""))
     def test_reconfigure_action_runs_render_manage_command(self, mock_manage, ctx, base_state):
@@ -180,3 +184,196 @@ class TestEnvFile:
         finally:
             charm_module.TERRASQUID_ENV_FILE = orig_env
             charm_module.GUNICORN_CONF_FILE = orig_gunicorn
+
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
+    def test_env_file_contains_pinned_config_version(self, mock_db, mock_key, ctx, tmp_path):
+        """When squid-pinned-config-version is set, it must appear in the env file."""
+        import charm as charm_module
+
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
+        charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
+        state = ops.testing.State(
+            config={
+                "squid-port": 3128,
+                "api-port": 8080,
+                "gunicorn-workers": 4,
+                "squid-extra-config": "",
+                "squid-pinned-config-version": 5,
+            }
+        )
+        try:
+            with ctx(ctx.on.config_changed(), state) as mgr:
+                mgr.run()
+            content = (tmp_path / "terrasquid.env").read_text()
+            assert "SQUID_PINNED_CONFIG_VERSION=5" in content
+        finally:
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn
+
+    @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
+    @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
+    def test_env_file_defaults_pinned_version_to_zero(self, mock_db, mock_key, ctx, base_state, tmp_path):
+        """When squid-pinned-config-version is unset, the env file must default to 0."""
+        import charm as charm_module
+
+        orig_env = charm_module.TERRASQUID_ENV_FILE
+        orig_gunicorn = charm_module.GUNICORN_CONF_FILE
+        charm_module.TERRASQUID_ENV_FILE = tmp_path / "terrasquid.env"
+        charm_module.GUNICORN_CONF_FILE = tmp_path / "gunicorn.conf.py"
+        try:
+            with ctx(ctx.on.config_changed(), base_state) as mgr:
+                mgr.run()
+            content = (tmp_path / "terrasquid.env").read_text()
+            assert "SQUID_PINNED_CONFIG_VERSION=0" in content
+        finally:
+            charm_module.TERRASQUID_ENV_FILE = orig_env
+            charm_module.GUNICORN_CONF_FILE = orig_gunicorn
+
+
+class TestCertificatesRelation:
+    """Tests for TLS certificates relation lifecycle."""
+
+    @patch("charm.SquidAsAServiceCharm._request_certificate")
+    def test_relation_joined_requests_certificate(self, mock_req, ctx, base_state):
+        """Joining the certificates relation should trigger a certificate request."""
+        certs_rel = ops.testing.Relation("certificates")
+        state = ops.testing.State(config=base_state.config, relations={certs_rel})
+        with ctx(ctx.on.relation_joined(certs_rel), state) as mgr:
+            mgr.run()
+        mock_req.assert_called_once()
+
+    def test_certificate_available_writes_cert_and_ca_files(self, ctx, tmp_path, monkeypatch):
+        """certificate_available handler must write the cert and CA PEM files to disk."""
+        import charm as charm_module
+
+        key_file = tmp_path / "terrasquid.key"
+        monkeypatch.setattr(charm_module, "TERRASQUID_CERTS_DIR", tmp_path)
+        monkeypatch.setattr(charm_module, "CERT_FILE", tmp_path / "terrasquid.crt")
+        monkeypatch.setattr(charm_module, "CA_FILE", tmp_path / "ca.crt")
+        monkeypatch.setattr(charm_module, "KEY_FILE", key_file)
+
+        cert_pem = "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----"
+        ca_pem = "-----BEGIN CERTIFICATE-----\nFAKE-CA\n-----END CERTIFICATE-----"
+        key_pem = "-----BEGIN RSA PRIVATE KEY-----\nFAKE-KEY\n-----END RSA PRIVATE KEY-----"
+
+        mock_event = MagicMock()
+        mock_event.certificate.raw = cert_pem
+        mock_event.ca.raw = ca_pem
+
+        mock_private_key = MagicMock()
+        mock_private_key.raw = key_pem
+
+        mock_self = MagicMock()
+        mock_self.certificates.get_private_key.return_value = mock_private_key
+        charm_module.SquidAsAServiceCharm._on_certificate_available(mock_self, mock_event)
+
+        assert (tmp_path / "terrasquid.crt").read_text() == cert_pem
+        assert (tmp_path / "ca.crt").read_text() == ca_pem
+        assert key_file.read_bytes() == key_pem.encode()
+        mock_self._write_gunicorn_config.assert_called_once()
+        mock_self._reload_gunicorn.assert_called_once()
+
+    def test_certificate_denied_removes_files_and_reloads_gunicorn(self, ctx, tmp_path, monkeypatch):
+        """certificate_denied handler must delete cert/CA files and reload gunicorn."""
+        import charm as charm_module
+
+        cert_file = tmp_path / "terrasquid.crt"
+        ca_file = tmp_path / "ca.crt"
+        cert_file.write_text("CERT")
+        ca_file.write_text("CA")
+        monkeypatch.setattr(charm_module, "CERT_FILE", cert_file)
+        monkeypatch.setattr(charm_module, "CA_FILE", ca_file)
+
+        mock_event = MagicMock()
+        mock_self = MagicMock()
+        charm_module.SquidAsAServiceCharm._on_certificate_denied(mock_self, mock_event)
+
+        assert not cert_file.exists()
+        assert not ca_file.exists()
+        mock_self._write_gunicorn_config.assert_called_once()
+        mock_self._reload_gunicorn.assert_called_once()
+
+    def test_certificate_denied_tolerates_missing_files(self, ctx, tmp_path, monkeypatch):
+        """certificate_denied handler must not raise when cert files are already absent."""
+        import charm as charm_module
+
+        monkeypatch.setattr(charm_module, "CERT_FILE", tmp_path / "missing.crt")
+        monkeypatch.setattr(charm_module, "CA_FILE", tmp_path / "missing.ca")
+
+        mock_self = MagicMock()
+        charm_module.SquidAsAServiceCharm._on_certificate_denied(mock_self, MagicMock())
+
+        mock_self._write_gunicorn_config.assert_called_once()
+        mock_self._reload_gunicorn.assert_called_once()
+
+
+class TestGunicornConfig:
+    """Tests for gunicorn config SSL section generation."""
+
+    def test_ssl_settings_included_when_cert_and_key_exist(self, ctx, tmp_path, monkeypatch):
+        """Certfile and keyfile must appear in the gunicorn config when both files are present."""
+        import charm as charm_module
+
+        cert_file = tmp_path / "terrasquid.crt"
+        key_file = tmp_path / "terrasquid.key"
+        cert_file.write_text("CERT")
+        key_file.write_text("KEY")
+
+        monkeypatch.setattr(charm_module, "CERT_FILE", cert_file)
+        monkeypatch.setattr(charm_module, "KEY_FILE", key_file)
+        monkeypatch.setattr(charm_module, "CA_FILE", tmp_path / "missing.ca")
+        monkeypatch.setattr(charm_module, "GUNICORN_CONF_FILE", tmp_path / "gunicorn.conf.py")
+
+        mock_self = MagicMock()
+        mock_self.config = {"api-port": 8080, "gunicorn-workers": 4}
+        charm_module.SquidAsAServiceCharm._write_gunicorn_config(mock_self)
+
+        content = (tmp_path / "gunicorn.conf.py").read_text()
+        assert str(cert_file) in content
+        assert str(key_file) in content
+        assert "ca_certs" not in content
+
+    def test_ssl_settings_include_ca_when_ca_exists(self, ctx, tmp_path, monkeypatch):
+        """ca_certs must appear in the gunicorn config when the CA file is present."""
+        import charm as charm_module
+
+        cert_file = tmp_path / "terrasquid.crt"
+        key_file = tmp_path / "terrasquid.key"
+        ca_file = tmp_path / "ca.crt"
+        cert_file.write_text("CERT")
+        key_file.write_text("KEY")
+        ca_file.write_text("CA")
+
+        monkeypatch.setattr(charm_module, "CERT_FILE", cert_file)
+        monkeypatch.setattr(charm_module, "KEY_FILE", key_file)
+        monkeypatch.setattr(charm_module, "CA_FILE", ca_file)
+        monkeypatch.setattr(charm_module, "GUNICORN_CONF_FILE", tmp_path / "gunicorn.conf.py")
+
+        mock_self = MagicMock()
+        mock_self.config = {"api-port": 8080, "gunicorn-workers": 4}
+        charm_module.SquidAsAServiceCharm._write_gunicorn_config(mock_self)
+
+        content = (tmp_path / "gunicorn.conf.py").read_text()
+        assert str(cert_file) in content
+        assert str(key_file) in content
+        assert str(ca_file) in content
+
+    def test_no_ssl_settings_when_cert_files_absent(self, ctx, tmp_path, monkeypatch):
+        """Certfile and keyfile must not appear in the gunicorn config when files are missing."""
+        import charm as charm_module
+
+        monkeypatch.setattr(charm_module, "CERT_FILE", tmp_path / "missing.crt")
+        monkeypatch.setattr(charm_module, "KEY_FILE", tmp_path / "missing.key")
+        monkeypatch.setattr(charm_module, "CA_FILE", tmp_path / "missing.ca")
+        monkeypatch.setattr(charm_module, "GUNICORN_CONF_FILE", tmp_path / "gunicorn.conf.py")
+
+        mock_self = MagicMock()
+        mock_self.config = {"api-port": 8080, "gunicorn-workers": 4}
+        charm_module.SquidAsAServiceCharm._write_gunicorn_config(mock_self)
+
+        content = (tmp_path / "gunicorn.conf.py").read_text()
+        assert "certfile" not in content
+        assert "keyfile" not in content

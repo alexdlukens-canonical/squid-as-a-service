@@ -287,146 +287,6 @@ paths:
       responses:
         '204':
           description: No response body
-  /api/v1/destination-groups/:
-    get:
-      operationId: v1_destination_groups_list
-      description: CRUD endpoints for DestinationGroup resources.
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/DestinationGroup'
-          description: ''
-    post:
-      operationId: v1_destination_groups_create
-      description: Create or return an existing DestinationGroup.
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DestinationGroup'
-          description: ''
-  /api/v1/destination-groups/{id}/:
-    get:
-      operationId: v1_destination_groups_retrieve
-      description: CRUD endpoints for DestinationGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this destination group.
-        required: true
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DestinationGroup'
-          description: ''
-    put:
-      operationId: v1_destination_groups_update
-      description: Update a DestinationGroup with Squid config validation.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this destination group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/DestinationGroup'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DestinationGroup'
-          description: ''
-    patch:
-      operationId: v1_destination_groups_partial_update
-      description: CRUD endpoints for DestinationGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this destination group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedDestinationGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedDestinationGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedDestinationGroup'
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/DestinationGroup'
-          description: ''
-    delete:
-      operationId: v1_destination_groups_destroy
-      description: Delete a DestinationGroup, rejecting with 409 if referenced by
-        ACL rules.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this destination group.
-        required: true
-      tags:
-      - v1
-      responses:
-        '204':
-          description: No response body
   /api/v1/destinations/:
     get:
       operationId: v1_destinations_list
@@ -560,284 +420,6 @@ paths:
           type: string
           format: uuid
         description: A UUID string identifying this destination config.
-        required: true
-      tags:
-      - v1
-      responses:
-        '204':
-          description: No response body
-  /api/v1/port-groups/:
-    get:
-      operationId: v1_port_groups_list
-      description: CRUD endpoints for PortGroup resources.
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/PortGroup'
-          description: ''
-    post:
-      operationId: v1_port_groups_create
-      description: Create or return an existing PortGroup.
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PortGroup'
-          description: ''
-  /api/v1/port-groups/{id}/:
-    get:
-      operationId: v1_port_groups_retrieve
-      description: CRUD endpoints for PortGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this port group.
-        required: true
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PortGroup'
-          description: ''
-    put:
-      operationId: v1_port_groups_update
-      description: Update a PortGroup with Squid config validation.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this port group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PortGroup'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PortGroup'
-          description: ''
-    patch:
-      operationId: v1_port_groups_partial_update
-      description: CRUD endpoints for PortGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this port group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedPortGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedPortGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedPortGroup'
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/PortGroup'
-          description: ''
-    delete:
-      operationId: v1_port_groups_destroy
-      description: Delete a PortGroup, rejecting with 409 if referenced.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this port group.
-        required: true
-      tags:
-      - v1
-      responses:
-        '204':
-          description: No response body
-  /api/v1/source-groups/:
-    get:
-      operationId: v1_source_groups_list
-      description: CRUD endpoints for SourceGroup resources.
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/SourceGroup'
-          description: ''
-    post:
-      operationId: v1_source_groups_create
-      description: Create or return an existing SourceGroup.
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-        required: true
-      responses:
-        '201':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SourceGroup'
-          description: ''
-  /api/v1/source-groups/{id}/:
-    get:
-      operationId: v1_source_groups_retrieve
-      description: CRUD endpoints for SourceGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this source group.
-        required: true
-      tags:
-      - v1
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SourceGroup'
-          description: ''
-    put:
-      operationId: v1_source_groups_update
-      description: Update a SourceGroup with Squid config validation.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this source group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/SourceGroup'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SourceGroup'
-          description: ''
-    patch:
-      operationId: v1_source_groups_partial_update
-      description: CRUD endpoints for SourceGroup resources.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this source group.
-        required: true
-      tags:
-      - v1
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/PatchedSourceGroup'
-          application/x-www-form-urlencoded:
-            schema:
-              $ref: '#/components/schemas/PatchedSourceGroup'
-          multipart/form-data:
-            schema:
-              $ref: '#/components/schemas/PatchedSourceGroup'
-      responses:
-        '200':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SourceGroup'
-          description: ''
-    delete:
-      operationId: v1_source_groups_destroy
-      description: Delete a SourceGroup, rejecting with 409 if referenced by ACL rules.
-      parameters:
-      - in: path
-        name: id
-        schema:
-          type: string
-          format: uuid
-        description: A UUID string identifying this source group.
         required: true
       tags:
       - v1
@@ -1017,22 +599,18 @@ components:
           type: integer
           maximum: 2147483647
           minimum: -2147483648
-        src:
-          type: string
-          format: uuid
-          nullable: true
-        src_group:
-          type: string
-          format: uuid
-          nullable: true
-        dst:
-          type: string
-          format: uuid
-          nullable: true
-        dst_group:
-          type: string
-          format: uuid
-          nullable: true
+        sources:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
+        destinations:
+          type: array
+          items:
+            type: string
+            format: uuid
+          minItems: 1
         created_at:
           type: string
           format: date-time
@@ -1043,10 +621,12 @@ components:
           readOnly: true
       required:
       - created_at
+      - destinations
       - id
       - key_prefix
       - name
       - service
+      - sources
       - updated_at
     DestinationConfig:
       type: object
@@ -1071,11 +651,6 @@ components:
           $ref: '#/components/schemas/TypeEnum'
         ports:
           nullable: true
-        port_groups:
-          type: array
-          items:
-            type: string
-            format: uuid
         created_at:
           type: string
           format: date-time
@@ -1092,44 +667,6 @@ components:
       - name
       - service
       - type
-      - updated_at
-    DestinationGroup:
-      type: object
-      description: Serializer for DestinationGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        destinations:
-          type: array
-          items:
-            type: string
-            format: uuid
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - created_at
-      - destinations
-      - id
-      - key_prefix
-      - name
-      - service
       - updated_at
     PatchedACLRule:
       type: object
@@ -1152,22 +689,16 @@ components:
           type: integer
           maximum: 2147483647
           minimum: -2147483648
-        src:
-          type: string
-          format: uuid
-          nullable: true
-        src_group:
-          type: string
-          format: uuid
-          nullable: true
-        dst:
-          type: string
-          format: uuid
-          nullable: true
-        dst_group:
-          type: string
-          format: uuid
-          nullable: true
+        sources:
+          type: array
+          items:
+            type: string
+            format: uuid
+        destinations:
+          type: array
+          items:
+            type: string
+            format: uuid
         created_at:
           type: string
           format: date-time
@@ -1199,67 +730,6 @@ components:
           $ref: '#/components/schemas/TypeEnum'
         ports:
           nullable: true
-        port_groups:
-          type: array
-          items:
-            type: string
-            format: uuid
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-    PatchedDestinationGroup:
-      type: object
-      description: Serializer for DestinationGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        destinations:
-          type: array
-          items:
-            type: string
-            format: uuid
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-    PatchedPortGroup:
-      type: object
-      description: Serializer for PortGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        ports: {}
         created_at:
           type: string
           format: date-time
@@ -1294,69 +764,6 @@ components:
           type: string
           format: date-time
           readOnly: true
-    PatchedSourceGroup:
-      type: object
-      description: Serializer for SourceGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        sources:
-          type: array
-          items:
-            type: string
-            format: uuid
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-    PortGroup:
-      type: object
-      description: Serializer for PortGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        ports: {}
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - created_at
-      - id
-      - key_prefix
-      - name
-      - service
-      - updated_at
     SourceACL:
       type: object
       description: Serializer for SourceACL resources.
@@ -1389,44 +796,6 @@ components:
       - key_prefix
       - name
       - service
-      - updated_at
-    SourceGroup:
-      type: object
-      description: Serializer for SourceGroup resources.
-      properties:
-        id:
-          type: string
-          format: uuid
-          readOnly: true
-        service:
-          type: string
-          readOnly: true
-        name:
-          type: string
-          maxLength: 63
-        key_prefix:
-          type: string
-          readOnly: true
-        sources:
-          type: array
-          items:
-            type: string
-            format: uuid
-        created_at:
-          type: string
-          format: date-time
-          readOnly: true
-        updated_at:
-          type: string
-          format: date-time
-          readOnly: true
-      required:
-      - created_at
-      - id
-      - key_prefix
-      - name
-      - service
-      - sources
       - updated_at
     TypeEnum:
       enum:

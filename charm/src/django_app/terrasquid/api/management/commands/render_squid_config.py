@@ -33,7 +33,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options) -> None:
         """Execute the command."""
-        from terrasquid.api.models import ConfigVersion
+        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
 
         config_version = ConfigVersion.get()
 
@@ -47,15 +47,28 @@ class Command(BaseCommand):
                 self.stdout.write(f"Wrote config to {output}")
             return
 
-        self._apply(config_version.rendered_config, config_version.version)
+        pinned_version = settings.SQUID_PINNED_CONFIG_VERSION
+        if pinned_version > 0:
+            try:
+                history_entry = RenderedConfigHistory.objects.get(version=pinned_version)
+            except RenderedConfigHistory.DoesNotExist:
+                self.stdout.write(
+                    f"Pinned config version {pinned_version} has not been rendered yet; skipping."
+                )
+                return
+            self._apply(history_entry.rendered_config, pinned_version)
+            return
+
+        rendered = config_version.rendered_config or render_squid_config(version=config_version.version)
+        self._apply(rendered, config_version.version)
 
     def _apply(self, rendered: str, version: int) -> None:
         """Write, validate, diff, atomically replace, and reload Squid."""
         SQUID_CONF_NEW.parent.mkdir(parents=True, exist_ok=True)
         SQUID_CONF_NEW.write_text(rendered)
 
-        if SQUID_CONF.exists() and SQUID_CONF.read_text() == rendered:
-            SQUID_CONF_NEW.unlink()
+        if SQUID_CONF.exists() and SQUID_CONF.read_text().strip() == rendered.strip():
+            SQUID_CONF_NEW.unlink(missing_ok=True)
             self.stdout.write("Squid config unchanged, skipping reload.")
             self._write_status(version, reload_ok=True)
             return
@@ -66,6 +79,9 @@ class Command(BaseCommand):
             self.stderr.write(f"Squid config validation failed: {err}")
             sys.exit(1)
 
+        SQUID_CONF_BAK = SQUID_CONF.with_suffix(".conf.bak")
+        if SQUID_CONF.exists():
+            SQUID_CONF.replace(SQUID_CONF_BAK)
         SQUID_CONF_NEW.replace(SQUID_CONF)
         self.stdout.write(f"Applied new Squid config to {SQUID_CONF}")
 
@@ -76,8 +92,13 @@ class Command(BaseCommand):
         )
         if result.returncode != 0:
             self.stderr.write(f"Squid reload failed: {(result.stderr or result.stdout).strip()}")
+            if SQUID_CONF_BAK.exists():
+                SQUID_CONF_BAK.replace(SQUID_CONF)
+                self.stderr.write("Restored previous Squid config from backup.")
             self._write_status(version, reload_ok=False)
             sys.exit(1)
+        if SQUID_CONF_BAK.exists():
+            SQUID_CONF_BAK.unlink(missing_ok=True)
 
         self.stdout.write("Squid reloaded successfully.")
         self._write_status(version, reload_ok=True)
@@ -87,9 +108,11 @@ class Command(BaseCommand):
         status_path = Path(settings.TERRASQUID_STATUS_FILE)
         status_path.parent.mkdir(parents=True, exist_ok=True)
         status_path.write_text(
-            json.dumps({
-                "applied_config_version": version,
-                "last_reload": datetime.now(UTC).isoformat(),
-                "last_reload_ok": reload_ok,
-            })
+            json.dumps(
+                {
+                    "applied_config_version": version,
+                    "last_reload": datetime.now(UTC).isoformat(),
+                    "last_reload_ok": reload_ok,
+                }
+            )
         )

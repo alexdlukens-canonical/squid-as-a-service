@@ -1,6 +1,7 @@
 """Management command: rotate_api_key."""
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 from rest_framework_api_key.models import APIKey
 
 
@@ -20,7 +21,8 @@ class Command(BaseCommand):
             old_key = APIKey.objects.get(name=name, revoked=False)
         except APIKey.DoesNotExist as exc:
             raise CommandError(f"No active API key with name '{name}' found.") from exc
-        old_key.revoked = True
-        old_key.save()
-        _, new_key = APIKey.objects.create_key(name=name)
+        with transaction.atomic():
+            old_key.revoked = True
+            old_key.save()
+            _, new_key = APIKey.objects.create_key(name=name)
         self.stdout.write(f"key={new_key}")

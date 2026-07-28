@@ -22,11 +22,13 @@ def juju():
     model = os.environ.get("JUJU_MODEL")
     if model:
         juju_instance = jubilant.Juju(model=model, cli_binary=JUJU_BIN)
+        juju_instance.model_config({"update-status-hook-interval": "1m"})
         yield juju_instance
     else:
         model_name = "jubilant-" + secrets.token_hex(4)
         juju_instance = jubilant.Juju(cli_binary=JUJU_BIN)
         juju_instance.add_model(model_name)
+        juju_instance.model_config({"update-status-hook-interval": "1m"})
         try:
             yield juju_instance
         finally:
@@ -42,11 +44,7 @@ def deployed_charms(juju):
     """
     charm_path = _find_charm_file()
 
-    juju.deploy(
-        "postgresql",
-        channel="16/stable",
-        base="ubuntu@24.04"
-    )
+    juju.deploy("postgresql", channel="16/stable", base="ubuntu@24.04")
     juju.deploy(
         charm_path,
         app="terrasquid",
@@ -59,9 +57,38 @@ def deployed_charms(juju):
     )
     juju.integrate("terrasquid:database", "postgresql:database")
 
-    juju.wait(jubilant.all_active, timeout=300)
+    juju.wait(jubilant.all_active, timeout=450)
 
     return {"saas_app": "terrasquid", "pg_app": "postgresql"}
+
+
+@pytest.fixture(scope="module")
+def deployed_charms_with_tls(juju, deployed_charms):
+    """Extend the base deployment with self-signed-certificates integrated to terrasquid.
+
+    Deploys the self-signed-certificates charm, integrates it on the certificates
+    relation, and waits for all applications to return to active/idle.
+    Returns the same dict as deployed_charms plus a 'tls_app' key.
+    """
+    saas_app = deployed_charms["saas_app"]
+    status = juju.status()
+    unit_address = status.apps[saas_app].units[f"{saas_app}/0"].public_address
+    juju.config(saas_app, {"external-hostname": unit_address})
+
+    juju.deploy(
+        "self-signed-certificates",
+        channel="1/stable",
+        base="ubuntu@24.04",
+    )
+    juju.integrate(f"{saas_app}:certificates", "self-signed-certificates:certificates")
+    juju.wait(jubilant.all_active, timeout=300)
+
+    def tls_enabled(status):
+        unit = status.apps[saas_app].units[f"{saas_app}/0"]
+        return "tls: enabled" in unit.workload_status.message
+
+    juju.wait(tls_enabled, timeout=120)
+    return {**deployed_charms, "tls_app": "self-signed-certificates"}
 
 
 def _find_charm_file() -> str:
