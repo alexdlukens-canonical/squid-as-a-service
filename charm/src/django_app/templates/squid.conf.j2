@@ -10,17 +10,17 @@ coredump_dir /var/spool/squid
 {% endif %}
 # ======= Source ACLs =======
 {% for src in source_acls %}
-acl src__{{ src.service }}__{{ src.name }} src {{ src.cidr | join(' ') }}
+acl src__{{ src.key_prefix }}__{{ src.name }} src {{ src.cidr | join(' ') }}
 {% endfor %}
 
 # ======= Destination ACLs =======
 {% for dst in destination_configs %}
 {% if dst.is_cidr %}
-acl dst__{{ dst.service }}__{{ dst.name }} dst {{ dst.dst }}
+acl dst__{{ dst.key_prefix }}__{{ dst.name }} dst {{ dst.dst }}
 {% else %}
-acl dst__{{ dst.service }}__{{ dst.name }} dstdomain {{ dst.dst }}
+acl dst__{{ dst.key_prefix }}__{{ dst.name }} dstdomain {{ dst.dst }}
 {% endif %}
-acl dstport__{{ dst.service }}__{{ dst.name }} port {{ dst.effective_ports() | join(' ') }}
+acl dstport__{{ dst.key_prefix }}__{{ dst.name }} port {{ dst.effective_ports() | join(' ') }}
 {% endfor %}
 
 # ======= ACL Rules (ordered by priority) =======
@@ -28,7 +28,7 @@ acl dstport__{{ dst.service }}__{{ dst.name }} port {{ dst.effective_ports() | j
 {% for dst in rule.destinations.all() %}
 {% set action = 'allow' if dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
 {% for src in rule.sources.all() %}
-http_access {{ action }} src__{{ src.service }}__{{ src.name }} dst__{{ dst.service }}__{{ dst.name }} dstport__{{ dst.service }}__{{ dst.name }}
+http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} dst__{{ dst.key_prefix }}__{{ dst.name }} dstport__{{ dst.key_prefix }}__{{ dst.name }}
 {% endfor %}
 {% endfor %}
 {% endfor %}

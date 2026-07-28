@@ -317,8 +317,8 @@ class TestACLRuleEndpoints(TestCase):
         assert response.status_code == 201
         config = ConfigVersion.get().rendered_config
         assert "http_access" in config
-        assert "src__test-service__my-src" in config
-        assert "dst__test-service__my-dst" in config
+        assert "src__ab12cd34__my-src" in config
+        assert "dst__ab12cd34__my-dst" in config
 
 
 class TestSquidConfigValidation(TestCase):
@@ -326,6 +326,38 @@ class TestSquidConfigValidation(TestCase):
 
     def setUp(self) -> None:
         self.client, self.api_key, self.raw_key = _make_client()
+
+    def test_render_uses_api_key_prefix_for_acl_names(self) -> None:
+        """Render compact ACL identifiers independently of the API key's friendly name."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+        )
+        destination = DestinationConfig.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client-terraform",
+            key_prefix="ab12cd34",
+            dst="registry.terraform.io",
+            type="CONNECT",
+            ports=[443],
+        )
+        rule = ACLRule.objects.create(
+            service="terrasquid-admin-key",
+            name="stg-terrasquid-ps7-client-terraform",
+            key_prefix="ab12cd34",
+        )
+        rule.sources.add(source)
+        rule.destinations.add(destination)
+
+        config = render_squid_config()
+
+        assert "dstport__ab12cd34__stg-terrasquid-ps7-client-terraform port 443" in config
+        assert "dstport__terrasquid-admin-key__" not in config
 
     def test_squid_validation_failure_returns_422(self) -> None:
         """When Squid config validation fails, the API returns 422 and rolls back."""
