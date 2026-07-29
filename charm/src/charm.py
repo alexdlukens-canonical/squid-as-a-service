@@ -381,7 +381,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             SQUID_PORT={squid_port}
             SQUID_PREPEND_CONFIG={squid_prepend_config}
             SQUID_APPEND_CONFIG={squid_append_config}
-            SQUID_DEFAULT_DENY={'true' if squid_default_deny else 'false'}
+            SQUID_DEFAULT_DENY={"true" if squid_default_deny else "false"}
             SQUID_PINNED_CONFIG_VERSION={squid_pinned_config_version}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
@@ -449,12 +449,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             if CA_FILE.exists():
                 ssl_config += f'ca_certs = "{CA_FILE}"\n'
 
-        content = (
-            f'bind = "[::]:{api_port}"\n'
-            f"workers = {workers}\n"
-            "timeout = 120\n"
-            'worker_class = "sync"\n' + ssl_config
-        )
+        content = f'bind = "[::]:{api_port}"\nworkers = {workers}\ntimeout = 120\nworker_class = "sync"\n' + ssl_config
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
 

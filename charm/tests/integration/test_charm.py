@@ -7,10 +7,14 @@ These tests deploy a real Juju model with PostgreSQL and verify that:
 - Basic CRUD on SourceACL resources works through the live API.
 """
 
+import subprocess
 import time
 
 import jubilant
 import requests
+
+JUJU_BIN = "/snap/juju/current/bin/juju"
+SQUID_CONF = "/etc/squid/squid.conf"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +35,17 @@ def _create_api_key(juju: jubilant.Juju, app: str, name: str) -> str:
     task = juju.run(f"{app}/0", "create-key", params={"name": name})
     assert task.success, f"create-key action failed: {task.results}"
     return task.results["key"]
+
+
+def _read_squid_conf(juju: jubilant.Juju, app: str) -> str:
+    """Return the applied Squid configuration from the first application unit."""
+    result = subprocess.run(
+        [JUJU_BIN, "exec", "--model", juju.model, "--unit", f"{app}/0", "--", "cat", SQUID_CONF],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -182,9 +197,7 @@ def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int =
     return response.json().get("applied_config_version", 0)
 
 
-def _wait_for_applied_version(
-    juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60
-) -> None:
+def _wait_for_applied_version(juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60) -> None:
     """Poll until applied_config_version reaches expected_version."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -193,9 +206,7 @@ def _wait_for_applied_version(
             return
         time.sleep(3)
     current = _get_applied_config_version(juju, app)
-    raise AssertionError(
-        f"Applied version {current} did not reach {expected_version} within {timeout}s"
-    )
+    raise AssertionError(f"Applied version {current} did not reach {expected_version} within {timeout}s")
 
 
 def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
@@ -235,14 +246,12 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
         timeout=10,
     )
     juju.run(f"{app}/0", "reconfigure")
-    
+
     applied_after = _get_applied_config_version(juju, app)
     db_version_after = _get_db_config_version(juju, app)
 
     assert db_version_after > v1, "DB version should have advanced after new resource was created"
-    assert applied_after == v1, (
-        f"Applied version {applied_after} should remain frozen at pinned version {v1}"
-    )
+    assert applied_after == v1, f"Applied version {applied_after} should remain frozen at pinned version {v1}"
 
     juju.config(app, {"squid-pinned-config-version": "0"})
     juju.wait(jubilant.all_active, timeout=60)
@@ -285,32 +294,61 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
 
     src_resp = requests.post(
         f"{base}/sources/",
-        json={"name": "all-clients", "cidr": ["0.0.0.0/0"]},
+        json={"name": "all-clients", "cidr": ["0.0.0.0/0"], "comment": "Proxy clients"},
         headers=headers,
         timeout=10,
     )
     assert src_resp.status_code == 201
-    src_id = src_resp.json()["id"]
+    source = src_resp.json()
+    assert source["comment"] == "Proxy clients"
+    src_id = source["id"]
 
     dst_resp = requests.post(
         f"{base}/destinations/",
-        json={"name": "google", "dst": ".google.com", "type": "ALLOW", "ports": [80]},
+        json={
+            "name": "google",
+            "dst": ".google.com",
+            "type": "ALLOW",
+            "ports": [80],
+            "comment": "Allowed Google destinations",
+        },
         headers=headers,
         timeout=10,
     )
     assert dst_resp.status_code == 201
-    dst_id = dst_resp.json()["id"]
+    destination = dst_resp.json()
+    assert destination["comment"] == "Allowed Google destinations"
+    dst_id = destination["id"]
 
     rule_resp = requests.post(
         f"{base}/acl-rules/",
-        json={"name": "allow-google", "sources": [src_id], "destinations": [dst_id], "priority": 10},
+        json={
+            "name": "allow-google",
+            "sources": [src_id],
+            "destinations": [dst_id],
+            "priority": 10,
+            "comment": "Allow clients to reach Google",
+        },
         headers=headers,
         timeout=10,
     )
     assert rule_resp.status_code == 201
+    assert rule_resp.json()["comment"] == "Allow clients to reach Google"
 
     expected_version = _get_db_config_version(juju, deployed_charms["saas_app"])
     _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
+
+    squid_conf = _read_squid_conf(juju, deployed_charms["saas_app"])
+    source_acl = f"acl src__{source['key_prefix']}__{source['name']}"
+    destination_acl = f"acl dst__{destination['key_prefix']}__{destination['name']}"
+    access_rule = (
+        f"http_access allow src__{source['key_prefix']}__{source['name']} "
+        f"dst__{destination['key_prefix']}__{destination['name']}"
+    )
+    assert squid_conf.index("# Proxy clients") < squid_conf.index(source_acl)
+    assert squid_conf.index("# Allowed Google destinations") < squid_conf.index(destination_acl)
+    assert squid_conf.index("# Allow clients to reach Google") < squid_conf.index(access_rule)
+    assert squid_conf.count("# Allow clients to reach Google") == 1
 
     r_after = requests.get(
         "http://www.google.com",

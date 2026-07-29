@@ -21,13 +21,19 @@ class BaseResourceSerializer(serializers.ModelSerializer):
     created_at = serializers.DateTimeField(read_only=True)
     updated_at = serializers.DateTimeField(read_only=True)
 
+    def validate_comment(self, value: str) -> str:
+        """Reject comments that could introduce extra Squid configuration lines."""
+        if "\r" in value or "\n" in value:
+            raise serializers.ValidationError("Comments must be a single line.")
+        return value
+
 
 class SourceACLSerializer(BaseResourceSerializer):
     """Serializer for SourceACL resources."""
 
     class Meta:
         model = SourceACL
-        fields = ["id", "service", "name", "key_prefix", "cidr", "created_at", "updated_at"]
+        fields = ["id", "service", "name", "key_prefix", "cidr", "comment", "created_at", "updated_at"]
 
     def validate_cidr(self, value: list) -> list:
         """Validate each entry is a valid IPv4 or IPv6 CIDR."""
@@ -52,6 +58,7 @@ class DestinationConfigSerializer(BaseResourceSerializer):
             "dst",
             "type",
             "ports",
+            "comment",
             "created_at",
             "updated_at",
         ]
@@ -63,7 +70,10 @@ class DestinationConfigSerializer(BaseResourceSerializer):
             return value
         except ValueError:
             pass
-        if re.match(r"^(\*?\.)?[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$", value):
+        if re.match(
+            r"^(\*?\.)?[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?)*$",
+            value,
+        ):
             return value
         raise serializers.ValidationError(f"'{value}' is not a valid CIDR or hostname.")
 
@@ -86,6 +96,7 @@ class ACLRuleSerializer(BaseResourceSerializer):
             "name",
             "key_prefix",
             "priority",
+            "comment",
             "sources",
             "destinations",
             "created_at",

@@ -146,7 +146,7 @@ def test_all_units_active(juju_ha, ha_deployment):
         assert unit_status.current == "active", f"{app}/{i} is not active: {unit_status}"
 
 
-def test_migration_ran_on_leader_only(juju_ha, ha_deployment):
+def test_migration_ran_on_leader_only(juju_ha, ha_deployment):  # noqa: ARG001
     """The Django migrate command must have run on exactly one unit (the leader).
 
     Verified two ways:

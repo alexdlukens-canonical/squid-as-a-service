@@ -121,6 +121,7 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
     def perform_create_with_squid_validation(self, serializer) -> None:
         """Save the model and validate Squid config, rolling back on failure."""
         from django.core.exceptions import ValidationError
+
         with transaction.atomic():
             try:
                 self.perform_create(serializer)
@@ -129,10 +130,11 @@ class ServiceModelViewSet(viewsets.ModelViewSet):
             rendered = render_squid_config()
             self._validate_squid_after_change(rendered)
             ConfigVersion.increment(rendered)
-    
+
     def perform_update_with_squid_validation(self, serializer) -> None:
         """Update the model and validate Squid config, rolling back on failure."""
         from django.core.exceptions import ValidationError
+
         with transaction.atomic():
             try:
                 self.perform_update(serializer)

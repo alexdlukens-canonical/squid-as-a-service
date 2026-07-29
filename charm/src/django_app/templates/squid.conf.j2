@@ -10,11 +10,17 @@ coredump_dir /var/spool/squid
 {% endif %}
 # ======= Source ACLs =======
 {% for src in source_acls %}
+{% if src.comment %}
+# {{ src.comment }}
+{% endif %}
 acl src__{{ src.key_prefix }}__{{ src.name }} src {{ src.cidr | join(' ') }}
 {% endfor %}
 
 # ======= Destination ACLs =======
 {% for dst in destination_configs %}
+{% if dst.comment %}
+# {{ dst.comment }}
+{% endif %}
 {% if dst.is_cidr %}
 acl dst__{{ dst.key_prefix }}__{{ dst.name }} dst {{ dst.dst }}
 {% else %}
@@ -25,6 +31,9 @@ acl dstport__{{ dst.key_prefix }}__{{ dst.name }} port {{ dst.effective_ports() 
 
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
+{% if rule.comment %}
+# {{ rule.comment }}
+{% endif %}
 {% for dst in rule.destinations.all() %}
 {% set action = 'allow' if dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
 {% for src in rule.sources.all() %}
