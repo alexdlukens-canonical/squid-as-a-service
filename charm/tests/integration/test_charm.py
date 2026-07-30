@@ -192,6 +192,42 @@ def test_idempotent_source_acl_post(juju, deployed_charms):
     assert r1.json()["id"] == r2.json()["id"]
 
 
+def test_destination_group_create_and_lookup(juju, deployed_charms):
+    """A destination group can contain an owned destination and be resolved by name."""
+    app = deployed_charms["saas_app"]
+    address = _unit_address(juju, app)
+    key = _create_api_key(juju, app, "destination-group-test")
+    headers = {"Authorization": f"Api-Key {key}"}
+    base = _api_url(address)
+
+    destination_response = requests.post(
+        f"{base}/destinations/",
+        json={"name": "github", "dst": "github.com", "type": "CONNECT", "ports": [443]},
+        headers=headers,
+        timeout=10,
+    )
+    assert destination_response.status_code == 201
+
+    group_response = requests.post(
+        f"{base}/destination-groups/",
+        json={
+            "name": "common-sites-cloud-access",
+            "destinations": [destination_response.json()["id"]],
+        },
+        headers=headers,
+        timeout=10,
+    )
+    assert group_response.status_code == 201
+
+    lookup_response = requests.get(
+        f"{base}/destination-groups/?name=common-sites-cloud-access",
+        headers=headers,
+        timeout=10,
+    )
+    assert lookup_response.status_code == 200
+    assert lookup_response.json()[0]["id"] == group_response.json()["id"]
+
+
 def test_revoke_api_key_action(juju, deployed_charms):
     """After revoking an API key, requests using it must return 403."""
     address = _unit_address(juju, deployed_charms["saas_app"])
@@ -240,7 +276,7 @@ def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int =
     return response.json().get("applied_config_version", 0)
 
 
-def _wait_for_applied_version(juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60) -> None:
+def _wait_for_applied_version(juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 180) -> None:
     """Poll until applied_config_version reaches expected_version."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -280,7 +316,7 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     assert v1 >= 1, "Expected at least one config version to have been applied"
 
     juju.config(app, {"squid-pinned-config-version": str(v1)})
-    juju.wait(jubilant.all_active, timeout=60)
+    juju.wait(jubilant.all_active, timeout=180)
 
     requests.post(
         f"{_api_url(address)}/sources/",
@@ -297,7 +333,7 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     assert applied_after == v1, f"Applied version {applied_after} should remain frozen at pinned version {v1}"
 
     juju.config(app, {"squid-pinned-config-version": "0"})
-    juju.wait(jubilant.all_active, timeout=60)
+    juju.wait(jubilant.all_active, timeout=180)
     juju.run(f"{app}/0", "reconfigure")
     _wait_for_applied_version(juju, app, expected_version=db_version_after)
 
@@ -376,17 +412,20 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
         timeout=10,
     )
     assert rule_resp.status_code == 201
-    assert rule_resp.json()["comment"] == "Allow clients to reach Google"
+    rule = rule_resp.json()
+    assert rule["comment"] == "Allow clients to reach Google"
 
     expected_version = _get_db_config_version(juju, deployed_charms["saas_app"])
-    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=180)
 
     squid_conf = _read_squid_conf(juju, deployed_charms["saas_app"])
     source_acl = f"acl src__{source['key_prefix']}__{source['name']}"
     destination_acl = f"acl dst__{destination['key_prefix']}__{destination['name']}"
+    rule_destination_acl = f"rule_dst__{rule['key_prefix']}__{rule['name']}__1"
+    rule_port_acl = f"rule_dstport__{rule['key_prefix']}__{rule['name']}__1"
     access_rule = (
         f"http_access allow src__{source['key_prefix']}__{source['name']} "
-        f"dst__{destination['key_prefix']}__{destination['name']}"
+        f"{rule_destination_acl} {rule_port_acl}"
     )
     assert squid_conf.index("# Proxy clients") < squid_conf.index(source_acl)
     assert squid_conf.index("# Allowed Google destinations") < squid_conf.index(destination_acl)

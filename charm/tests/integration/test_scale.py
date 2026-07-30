@@ -5,11 +5,11 @@ resources from other test modules bleed into the generated Squid configuration
 file being verified.
 """
 
+import re
 import secrets
 import subprocess
 import time
 from pathlib import Path
-import re
 
 import jubilant
 import pytest
@@ -32,7 +32,7 @@ _UNIT_ENV_FILE = "/etc/terrasquid/terrasquid.env"
 _SQUID_CONF = "/etc/squid/squid.conf"
 
 SOURCE_COUNT = 1000
-_ACL_KEY_PREFIX = re.compile(r"\b(?P<kind>src|dst|dstport)__[A-Za-z0-9]+__")
+_ACL_KEY_PREFIX = re.compile(r"\b(?P<kind>src|dst|dstport|rule_dst|rule_dstport)__[A-Za-z0-9]+__")
 
 # Local snapshot file — persists across runs so the config can be diffed.
 _SNAPSHOT_PATH = CHARM_DIR / "tests" / "integration" / "squid_scale_snapshot.conf"
@@ -125,12 +125,9 @@ def _canonical_squid_conf(config: str) -> str:
         _ACL_KEY_PREFIX.sub(lambda match: f"{match['kind']}__KEY_PREFIX__", line)
         for line in config.splitlines(keepends=True)
     ]
-    generated_allow_rules = iter(
-        sorted(line for line in lines if line.startswith("http_access allow src__"))
-    )
+    generated_allow_rules = iter(sorted(line for line in lines if line.startswith("http_access allow src__")))
     return "".join(
-        next(generated_allow_rules) if line.startswith("http_access allow src__") else line
-        for line in lines
+        next(generated_allow_rules) if line.startswith("http_access allow src__") else line for line in lines
     )
 
 

@@ -17,12 +17,14 @@ from .models import (
     ACLRule,
     ConfigVersion,
     DestinationConfig,
+    DestinationGroup,
     SourceACL,
 )
 from .permissions import ServiceAPIKeyPermission
 from .serializers import (
     ACLRuleSerializer,
     DestinationConfigSerializer,
+    DestinationGroupSerializer,
     SourceACLSerializer,
 )
 from .squid_render import render_squid_config, validate_squid_config
@@ -192,6 +194,68 @@ class DestinationConfigViewSet(ServiceModelViewSet):
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         """Delete a DestinationConfig, rejecting with 409 if referenced."""
         instance = self.get_object()
+        if instance.rules.exists() or instance.groups.exists():
+            return Response(
+                {"detail": "Cannot delete: resource is referenced by ACL rules or destination groups."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        with transaction.atomic():
+            instance.delete()
+            _post_write_render()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DestinationGroupViewSet(ServiceModelViewSet):
+    """CRUD endpoints for globally readable, owner-managed destination groups."""
+
+    queryset = DestinationGroup.objects.prefetch_related("destinations")
+    serializer_class = DestinationGroupSerializer
+
+    def get_queryset(self):
+        """Return owner groups for listing or one globally shared group by exact name."""
+        queryset = self.queryset
+        if self.action == "list":
+            name = self.request.query_params.get("name")
+            if name:
+                return queryset.filter(name=name)
+            return queryset.filter(service=self.request.api_key.name)
+        return queryset
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        """Create a group or return the owner's existing group with the same name."""
+        name = request.data.get("name")
+        existing = self.queryset.filter(name=name).first() if name else None
+        if existing:
+            if existing.service == request.api_key.name:
+                return Response(self.get_serializer(existing).data, status=status.HTTP_200_OK)
+            return Response(
+                {"detail": "A destination group with this name already exists."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        return super().create(request, *args, **kwargs)
+
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        """Update a group with Squid config validation."""
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        if instance.service != request.api_key.name:
+            return Response(
+                {"detail": "Only the owning service may modify this destination group."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update_with_squid_validation(serializer)
+        return Response(serializer.data)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        """Delete an owner-managed group unless ACL rules still reference it."""
+        instance = self.get_object()
+        if instance.service != request.api_key.name:
+            return Response(
+                {"detail": "Only the owning service may delete this destination group."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
         if instance.rules.exists():
             return Response(
                 {"detail": "Cannot delete: resource is referenced by ACL rules."},
@@ -206,7 +270,7 @@ class DestinationConfigViewSet(ServiceModelViewSet):
 class ACLRuleViewSet(ServiceModelViewSet):
     """CRUD endpoints for ACLRule resources."""
 
-    queryset = ACLRule.objects.prefetch_related("sources", "destinations")
+    queryset = ACLRule.objects.prefetch_related("sources", "destinations", "destination_groups__destinations")
     serializer_class = ACLRuleSerializer
 
     def update(self, request: Request, *args, **kwargs) -> Response:

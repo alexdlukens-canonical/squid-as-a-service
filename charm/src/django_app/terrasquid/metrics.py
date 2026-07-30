@@ -123,4 +123,5 @@ class TerrasquidCollector:
         api_running.add_metric([unit], _service_running("terrasquid-api"))
         yield api_running
 
+
 REGISTRY.register(TerrasquidCollector())

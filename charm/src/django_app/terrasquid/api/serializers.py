@@ -8,6 +8,7 @@ from rest_framework import serializers
 from .models import (
     ACLRule,
     DestinationConfig,
+    DestinationGroup,
     SourceACL,
 )
 
@@ -78,6 +79,40 @@ class DestinationConfigSerializer(BaseResourceSerializer):
         raise serializers.ValidationError(f"'{value}' is not a valid CIDR or hostname.")
 
 
+class DestinationGroupSerializer(BaseResourceSerializer):
+    """Serializer for globally reusable destination groups."""
+
+    destinations = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=DestinationConfig.objects.all(), pk_field=serializers.UUIDField()
+    )
+
+    class Meta:
+        model = DestinationGroup
+        fields = [
+            "id",
+            "service",
+            "name",
+            "key_prefix",
+            "destinations",
+            "comment",
+            "created_at",
+            "updated_at",
+        ]
+
+    def validate_destinations(self, value: list) -> list:
+        """Require a group to contain at least one destination owned by its creator."""
+        if not value:
+            raise serializers.ValidationError("At least one destination is required.")
+        service = self.context["request"].api_key.name
+        for destination in value:
+            if destination.service != service:
+                raise serializers.ValidationError(
+                    f"Destination '{destination.name}' belongs to service '{destination.service}', "
+                    f"not the authenticated service '{service}'."
+                )
+        return value
+
+
 class ACLRuleSerializer(BaseResourceSerializer):
     """Serializer for ACLRule resources."""
 
@@ -85,7 +120,10 @@ class ACLRuleSerializer(BaseResourceSerializer):
         many=True, queryset=SourceACL.objects.all(), pk_field=serializers.UUIDField()
     )
     destinations = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=DestinationConfig.objects.all(), pk_field=serializers.UUIDField()
+        many=True, queryset=DestinationConfig.objects.all(), pk_field=serializers.UUIDField(), required=False
+    )
+    destination_groups = serializers.PrimaryKeyRelatedField(
+        many=True, queryset=DestinationGroup.objects.all(), pk_field=serializers.UUIDField(), required=False
     )
 
     class Meta:
@@ -99,6 +137,7 @@ class ACLRuleSerializer(BaseResourceSerializer):
             "comment",
             "sources",
             "destinations",
+            "destination_groups",
             "created_at",
             "updated_at",
         ]
@@ -117,9 +156,7 @@ class ACLRuleSerializer(BaseResourceSerializer):
         return value
 
     def validate_destinations(self, value: list) -> list:
-        """Require at least one destination, all belonging to the authenticated service."""
-        if not value:
-            raise serializers.ValidationError("At least one destination is required.")
+        """Ensure direct destinations belong to the authenticated service."""
         service = self.context["request"].api_key.name
         for destination in value:
             if destination.service != service:
@@ -128,3 +165,15 @@ class ACLRuleSerializer(BaseResourceSerializer):
                     f"not the authenticated service '{service}'."
                 )
         return value
+
+    def validate(self, attrs: dict) -> dict:
+        """Require at least one direct destination or globally readable destination group."""
+        if self.instance is None:
+            destinations = attrs.get("destinations", [])
+            destination_groups = attrs.get("destination_groups", [])
+        else:
+            destinations = attrs.get("destinations", self.instance.destinations.all())
+            destination_groups = attrs.get("destination_groups", self.instance.destination_groups.all())
+        if not destinations and not destination_groups:
+            raise serializers.ValidationError("At least one destination or destination group is required.")
+        return attrs

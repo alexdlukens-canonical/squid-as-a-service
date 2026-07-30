@@ -74,6 +74,20 @@ class DestinationConfig(BaseResource):
         return sorted(result)
 
 
+class DestinationGroup(BaseResource):
+    """A globally named collection of reusable destination configurations."""
+
+    comment = models.CharField(max_length=255, blank=True, default="")
+    destinations = models.ManyToManyField(DestinationConfig, related_name="groups")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["name"], name="unique_destination_group_name")]
+
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return self.name
+
+
 class ACLRule(BaseResource):
     """A Squid ACL rule pairing sources and destinations with a priority."""
 
@@ -81,6 +95,7 @@ class ACLRule(BaseResource):
     comment = models.CharField(max_length=255, blank=True, default="")
     sources = models.ManyToManyField(SourceACL, related_name="rules")
     destinations = models.ManyToManyField(DestinationConfig, related_name="rules")
+    destination_groups = models.ManyToManyField(DestinationGroup, related_name="rules", blank=True)
 
     class Meta:
         unique_together = [("service", "name")]
@@ -88,6 +103,37 @@ class ACLRule(BaseResource):
     def __str__(self) -> str:
         """Return the string representation."""
         return f"{self.service}/{self.name}"
+
+    @property
+    def effective_destinations(self) -> list[DestinationConfig]:
+        """Return direct and grouped destinations without duplicate entries."""
+        destinations = {destination.id: destination for destination in self.destinations.all()}
+        for destination_group in self.destination_groups.all():
+            for destination in destination_group.destinations.all():
+                destinations[destination.id] = destination
+        return list(destinations.values())
+
+    @property
+    def effective_destination_buckets(self) -> list[dict]:
+        """Return effective destinations partitioned into safe Squid access-list buckets."""
+        buckets: dict[tuple[str, tuple[int, ...], str], list[DestinationConfig]] = {}
+        for destination in self.effective_destinations:
+            destination_kind = "dst" if destination.is_cidr else "dstdomain"
+            key = (destination.type, tuple(destination.effective_ports()), destination_kind)
+            buckets.setdefault(key, []).append(destination)
+
+        return [
+            {
+                "index": index,
+                "type": action_type,
+                "ports": ports,
+                "destination_kind": destination_kind,
+                "destinations": sorted(destinations, key=lambda destination: destination.dst),
+            }
+            for index, ((action_type, ports, destination_kind), destinations) in enumerate(
+                sorted(buckets.items()), start=1
+            )
+        ]
 
 
 class ConfigVersion(models.Model):

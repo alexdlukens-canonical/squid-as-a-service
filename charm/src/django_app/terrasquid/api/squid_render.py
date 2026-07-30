@@ -40,7 +40,9 @@ def render_squid_config(version: int | None = None) -> str:
         source_acls=list(SourceACL.objects.order_by("service", "name")),
         destination_configs=list(DestinationConfig.objects.order_by("service", "name")),
         acl_rules=list(
-            ACLRule.objects.prefetch_related("sources", "destinations").order_by("priority", "service", "name")
+            ACLRule.objects.prefetch_related("sources", "destinations", "destination_groups__destinations").order_by(
+                "priority", "service", "name"
+            )
         ),
     )
 
