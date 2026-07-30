@@ -296,6 +296,20 @@ def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -
     return response.json().get("db_config_version", 0)
 
 
+def _set_pinned_config_version(juju: jubilant.Juju, app: str, version: int) -> None:
+    """Set the pinned version and wait for config-changed to update the unit environment."""
+    juju.config(app, {"squid-pinned-config-version": str(version)})
+    expected = f"SQUID_PINNED_CONFIG_VERSION={version}"
+    task = juju.exec(
+        "grep",
+        "-Fx",
+        expected,
+        "/etc/terrasquid/terrasquid.env",
+        unit=f"{app}/0",
+    )
+    assert task.stdout.strip() == expected
+
+
 def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     """When squid-pinned-config-version is set, the applied version must not advance beyond it."""
     app = deployed_charms["saas_app"]
@@ -303,43 +317,53 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     key = _create_api_key(juju, app, "pin-test")
     headers = {"Authorization": f"Api-Key {key}"}
 
-    requests.post(
+    _set_pinned_config_version(juju, app, 0)
+    baseline_version = _get_db_config_version(juju, app)
+    task = juju.run(f"{app}/0", "reconfigure")
+    assert task.success, f"Initial reconfigure failed: {task.results}"
+    _wait_for_applied_version(juju, app, baseline_version)
+
+    response = requests.post(
         f"{_api_url(address)}/sources/",
         json={"name": "pin-src-v1", "cidr": ["10.10.0.0/16"]},
         headers=headers,
         timeout=10,
     )
-    juju.run(f"{app}/0", "reconfigure")
+    assert response.status_code == 201, response.text
+    task = juju.run(f"{app}/0", "reconfigure")
+    assert task.success, f"Reconfigure failed: {task.results}"
     _wait_for_applied_version(juju, app, 1)
 
     v1 = _get_applied_config_version(juju, app)
     assert v1 >= 1, "Expected at least one config version to have been applied"
 
-    juju.config(app, {"squid-pinned-config-version": str(v1)})
-    juju.wait(jubilant.all_active, timeout=180)
+    _set_pinned_config_version(juju, app, v1)
+    try:
+        response = requests.post(
+            f"{_api_url(address)}/sources/",
+            json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
+            headers=headers,
+            timeout=10,
+        )
+        assert response.status_code == 201, response.text
+        task = juju.run(f"{app}/0", "reconfigure")
+        assert task.success, f"Pinned reconfigure failed: {task.results}"
 
-    requests.post(
-        f"{_api_url(address)}/sources/",
-        json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
-        headers=headers,
-        timeout=10,
-    )
-    juju.run(f"{app}/0", "reconfigure")
+        applied_after = _get_applied_config_version(juju, app)
+        db_version_after = _get_db_config_version(juju, app)
 
-    applied_after = _get_applied_config_version(juju, app)
-    db_version_after = _get_db_config_version(juju, app)
-
-    assert db_version_after > v1, "DB version should have advanced after new resource was created"
-    assert applied_after == v1, f"Applied version {applied_after} should remain frozen at pinned version {v1}"
-
-    juju.config(app, {"squid-pinned-config-version": "0"})
-    juju.wait(jubilant.all_active, timeout=180)
-    juju.run(f"{app}/0", "reconfigure")
-    _wait_for_applied_version(juju, app, expected_version=db_version_after)
+        assert db_version_after > v1, "DB version should have advanced after new resource was created"
+        assert applied_after == v1, f"Applied version {applied_after} should remain frozen at pinned version {v1}"
+    finally:
+        _set_pinned_config_version(juju, app, 0)
+        latest_db_version = _get_db_config_version(juju, app)
+        task = juju.run(f"{app}/0", "reconfigure")
+        assert task.success, f"Cleanup reconfigure failed: {task.results}"
+        _wait_for_applied_version(juju, app, expected_version=latest_db_version)
 
     applied_unpinned = _get_applied_config_version(juju, app)
-    assert applied_unpinned == db_version_after, (
-        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {db_version_after}"
+    assert applied_unpinned == latest_db_version, (
+        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {latest_db_version}"
     )
 
 
