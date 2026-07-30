@@ -4,6 +4,7 @@
 .specify/feature.json
 .kilocode/rules/specify-rules.md
 
+charm/tests/integration/*.new
 # Python
 __pycache__/
 *.py[cod]
