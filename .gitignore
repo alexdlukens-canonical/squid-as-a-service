@@ -5,6 +5,8 @@
 .kilocode/rules/specify-rules.md
 
 charm/tests/integration/*.new
+db.sqlite3
+terrasquid_test.db
 # Python
 __pycache__/
 *.py[cod]
