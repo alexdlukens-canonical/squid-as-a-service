@@ -5,6 +5,12 @@
 http_port [::]:{{ squid_port }}
 coredump_dir /var/spool/squid
 
+# Cache-manager statistics are available only to the local exporter.
+acl manager proto cache_object
+acl localhost src 127.0.0.1/32 ::1
+http_access allow localhost manager
+http_access deny manager
+
 {% if squid_prepend_config %}
 {{ squid_prepend_config }}
 {% endif %}

@@ -7,13 +7,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 SQUID_SERVICE = "squid"
+SQUID_EXPORTER_SERVICE = "terrasquid-squid-exporter"
 SQUID_CONF_PATH = Path("/etc/squid/squid.conf")
 SQUID_SPOOL_DIR = Path("/var/spool/squid")
 
 
 def install_squid() -> None:
-    """Install the Squid package via apt."""
-    subprocess.run(["apt-get", "install", "-y", "squid"], check=True)
+    """Install Squid and its Prometheus exporter via apt."""
+    subprocess.run(["apt-get", "install", "-y", "squid", "prometheus-squid-exporter"], check=True)
 
 
 def write_squid_config(config_text: str, path: Path = SQUID_CONF_PATH) -> None:

@@ -91,6 +91,27 @@ def deployed_charms_with_tls(juju, deployed_charms):
     return {**deployed_charms, "tls_app": "self-signed-certificates"}
 
 
+@pytest.fixture(scope="module")
+def deployed_charms_with_otelcol(juju, deployed_charms):
+    """Relate Terrasquid to the OpenTelemetry Collector subordinate."""
+    saas_app = deployed_charms["saas_app"]
+    otelcol_app = "opentelemetry-collector"
+    juju.deploy(
+        otelcol_app,
+        app=otelcol_app,
+        channel="2/stable",
+        base="ubuntu@24.04",
+    )
+    juju.integrate(f"{saas_app}:cos-agent", f"{otelcol_app}:cos-agent")
+
+    def terrasquid_active_idle(status):
+        unit = status.apps[saas_app].units[f"{saas_app}/0"]
+        return unit.workload_status.current == "active" and unit.juju_status.current == "idle"
+
+    juju.wait(terrasquid_active_idle, timeout=450)
+    return {**deployed_charms, "otelcol_app": otelcol_app}
+
+
 def _find_charm_file() -> str:
     """Locate the built .charm file in the charm directory."""
     charm_files = list(CHARM_DIR.glob("*.charm"))

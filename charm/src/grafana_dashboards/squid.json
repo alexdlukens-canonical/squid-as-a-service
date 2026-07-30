@@ -1,0 +1,93 @@
+{
+  "title": "Squid Metrics",
+  "description": "Prometheus metrics from the Terrasquid-managed Squid exporter.",
+  "tags": ["terrasquid", "squid", "prometheus"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "DS_PROMETHEUS", "label": "Prometheus", "type": "datasource", "query": "prometheus", "refresh": 1}
+    ]
+  },
+  "panels": [
+    {
+      "title": "Client HTTP Requests",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(rate(squid_client_http_requests_total[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "title": "Client HTTP Traffic",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {"defaults": {"unit": "Bps"}},
+      "targets": [
+        {"expr": "sum(rate(squid_client_http_kbytes_in_kbytes_total[5m])) * 1024", "legendFormat": "in"},
+        {"expr": "sum(rate(squid_client_http_kbytes_out_kbytes_total[5m])) * 1024", "legendFormat": "out"}
+      ]
+    },
+    {
+      "title": "Client Cache Hit Ratio",
+      "type": "gauge",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 8},
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}},
+      "targets": [{"expr": "sum(rate(squid_client_http_hits_total[5m])) / clamp_min(sum(rate(squid_client_http_requests_total[5m])), 1)", "legendFormat": "hit ratio"}]
+    },
+    {
+      "title": "Client HTTP Errors",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 8},
+      "targets": [{"expr": "sum(rate(squid_client_http_errors_total[5m]))", "legendFormat": "errors/s"}]
+    },
+    {
+      "title": "Server HTTP Requests",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 8},
+      "targets": [{"expr": "sum(rate(squid_server_http_requests_total[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "title": "Server HTTP Traffic",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "fieldConfig": {"defaults": {"unit": "Bps"}},
+      "targets": [
+        {"expr": "sum(rate(squid_server_http_kbytes_in_kbytes_total[5m])) * 1024", "legendFormat": "in"},
+        {"expr": "sum(rate(squid_server_http_kbytes_out_kbytes_total[5m])) * 1024", "legendFormat": "out"}
+      ]
+    },
+    {
+      "title": "Server HTTP Errors",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [{"expr": "sum(rate(squid_server_http_errors_total[5m]))", "legendFormat": "errors/s"}]
+    },
+    {
+      "title": "All Server Requests",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [{"expr": "sum(rate(squid_server_all_requests_total[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "title": "All Server Traffic",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "fieldConfig": {"defaults": {"unit": "Bps"}},
+      "targets": [
+        {"expr": "sum(rate(squid_server_all_kbytes_in_kbytes_total[5m])) * 1024", "legendFormat": "in"},
+        {"expr": "sum(rate(squid_server_all_kbytes_out_kbytes_total[5m])) * 1024", "legendFormat": "out"}
+      ]
+    }
+  ]
+}

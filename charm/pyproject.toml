@@ -21,6 +21,8 @@ dependencies = [
     "whitenoise",
     "dj-database-url",
     "charmlibs-interfaces-tls-certificates",
+    "cosl>=1.10.2",
+    "django-prometheus>=2.5.0",
 ]
 
 [project.optional-dependencies]

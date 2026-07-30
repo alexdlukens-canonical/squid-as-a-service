@@ -1,11 +1,13 @@
 """Unit tests for the SquidAsAServiceCharm ops lifecycle."""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ops
 import ops.testing
 import pytest
+from cosl import LZMABase64
 
 
 @pytest.fixture(autouse=True)
@@ -47,11 +49,12 @@ class TestInstall:
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
     @patch("pathlib.Path.mkdir")
     def test_install_installs_squid(self, mock_mkdir, mock_units, mock_key, no_subprocess, ctx, base_state):
-        """The install event should trigger Squid installation."""
+        """The install event should install Squid and its Prometheus exporter."""
         with ctx(ctx.on.install(), base_state) as mgr:
             mgr.run()
         apt_calls = [c for c in no_subprocess.call_args_list if "apt-get" in str(c)]
         assert len(apt_calls) == 1
+        assert "prometheus-squid-exporter" in str(apt_calls[0])
 
     @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="test-key")
     @patch("charm.SquidAsAServiceCharm._write_systemd_units")
@@ -75,11 +78,25 @@ class TestStart:
     @patch("charm.SquidAsAServiceCharm._write_env_file")
     @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@host/db")
     def test_start_with_database_starts_services(self, mock_db, mock_env, no_subprocess, ctx, base_state):
-        """A start event with a database should start all services."""
+        """A start event with a database should start all managed services."""
         with ctx(ctx.on.start(), base_state) as mgr:
             mgr.run()
         started = [str(c) for c in no_subprocess.call_args_list]
         assert any("enable" in s for s in started)
+        assert any("terrasquid-squid-exporter" in s for s in started)
+
+
+class TestUpgrade:
+    """Tests for charm upgrades."""
+
+    @patch("charm.SquidAsAServiceCharm._write_systemd_units")
+    @patch("charm.squid.install_squid")
+    def test_upgrade_installs_managed_packages(self, mock_install, mock_units, no_subprocess, ctx, base_state):
+        """An upgrade installs packages introduced by the new charm revision."""
+        with ctx(ctx.on.upgrade_charm(), base_state) as mgr:
+            mgr.run()
+        mock_install.assert_called_once()
+        mock_units.assert_called_once()
 
 
 class TestDatabaseRelation:
@@ -135,6 +152,44 @@ class TestCollectUnitStatus:
         with ctx(ctx.on.collect_unit_status(), base_state) as mgr:
             mgr.run()
             assert isinstance(mgr.charm.unit.status, ops.ActiveStatus)
+
+
+class TestCOSAgentRelation:
+    """Tests for COS agent telemetry publication."""
+
+    def test_relation_advertises_metrics_dashboard_and_alert_rules(self, ctx, base_state):
+        """COS relation data must advertise the local metrics scrape target and bundled artifacts."""
+        cos_relation = ops.testing.Relation("cos-agent", remote_app_name="grafana-agent")
+        state = ops.testing.State(config=base_state.config, relations={cos_relation})
+        with ctx(ctx.on.relation_joined(cos_relation), state) as mgr:
+            mgr.run()
+            relation = mgr.charm.model.get_relation("cos-agent")
+            assert relation is not None
+            data = json.loads(relation.data[mgr.charm.unit]["config"])
+
+        scrape_targets = {
+            job["static_configs"][0]["targets"][0]: job["metrics_path"] for job in data["metrics_scrape_jobs"]
+        }
+        assert scrape_targets == {"localhost:8080": "/metrics", "localhost:9301": "/metrics"}
+        dashboards = [json.loads(LZMABase64.decompress(dashboard)) for dashboard in data["dashboards"]]
+        assert {dashboard["title"] for dashboard in dashboards} == {"Terrasquid Overview", "Squid Metrics"}
+        assert data["metrics_alert_rules"]["groups"]
+
+    def test_dashboard_uses_native_squid_exporter_metrics(self):
+        """The published Squid dashboard must graph metrics exported by the local exporter."""
+        dashboard_path = Path(__file__).parent.parent.parent / "src" / "grafana_dashboards" / "squid.json"
+        dashboard = json.loads(dashboard_path.read_text())
+        expressions = {target["expr"] for panel in dashboard["panels"] for target in panel["targets"]}
+        assert "sum(rate(squid_client_http_requests_total[5m]))" in expressions
+        assert "sum(rate(squid_client_http_errors_total[5m]))" in expressions
+        assert "sum(rate(squid_server_http_requests_total[5m]))" in expressions
+
+    def test_published_dashboards_use_cos_prometheus_datasource(self):
+        """Dashboard panels must explicitly use Grafana's COS-provisioned Prometheus datasource."""
+        dashboard_dir = Path(__file__).parent.parent.parent / "src" / "grafana_dashboards"
+        for dashboard_path in (dashboard_dir / "terrasquid.json", dashboard_dir / "squid.json"):
+            dashboard = json.loads(dashboard_path.read_text())
+            assert {panel["datasource"]["uid"] for panel in dashboard["panels"]} == {"${prometheusds}"}
 
 
 class TestActions:

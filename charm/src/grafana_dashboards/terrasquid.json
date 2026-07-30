@@ -1,0 +1,87 @@
+{
+  "title": "Terrasquid Overview",
+  "tags": ["terrasquid", "squid"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {"name": "DS_PROMETHEUS", "label": "Prometheus", "type": "datasource", "query": "prometheus", "refresh": 1}
+    ]
+  },
+  "panels": [
+    {
+      "title": "Squid Client Request Rate",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+      "targets": [{"expr": "sum(rate(squid_client_http_requests_total[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "title": "Squid Cache Hit Ratio",
+      "type": "gauge",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": 0.5}, {"color": "green", "value": 0.8}]}
+        }
+      },
+      "targets": [{"expr": "sum(rate(squid_client_http_hits_total[5m])) / clamp_min(sum(rate(squid_client_http_requests_total[5m])), 1)", "legendFormat": "hit ratio"}]
+    },
+    {
+      "title": "Squid Client Errors",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [{"expr": "sum(rate(squid_client_http_errors_total[5m]))", "legendFormat": "errors/s"}]
+    },
+    {
+      "title": "Squid Backend HTTP Requests",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [{"expr": "sum(rate(squid_server_http_requests_total[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "title": "Squid Configuration Versions",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {"expr": "terrasquid_squid_config_desired_version", "legendFormat": "{{unit}} desired"},
+        {"expr": "terrasquid_squid_config_applied_version", "legendFormat": "{{unit}} applied"}
+      ]
+    },
+    {
+      "title": "Configuration Version Skew",
+      "type": "stat",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 6, "x": 12, "y": 16},
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}},
+      "targets": [{"expr": "terrasquid_squid_config_version_skew", "legendFormat": "{{unit}}"}]
+    },
+    {
+      "title": "Service Availability",
+      "type": "stat",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 16},
+      "targets": [
+        {"expr": "terrasquid_squid_service_running", "legendFormat": "{{unit}} Squid"},
+        {"expr": "terrasquid_api_service_running", "legendFormat": "{{unit}} API"}
+      ]
+    },
+    {
+      "title": "Terrasquid API Responses",
+      "type": "timeseries",
+      "datasource": {"type": "datasource", "uid": "${prometheusds}"},
+      "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24},
+      "targets": [{"expr": "sum by (status) (rate(django_http_responses_total_by_status_total[5m]))", "legendFormat": "HTTP {{status}}"}]
+    }
+  ]
+}

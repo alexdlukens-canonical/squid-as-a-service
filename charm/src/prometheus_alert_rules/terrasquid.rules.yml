@@ -1,0 +1,31 @@
+groups:
+  - name: terrasquid
+    rules:
+      - alert: TerrasquidSquidConfigurationOutOfDate
+        expr: terrasquid_squid_config_version_skew > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Squid configuration is out of date on {{ $labels.unit }}
+      - alert: TerrasquidSquidReloadFailed
+        expr: terrasquid_squid_last_reload_timestamp_seconds > 0 and terrasquid_squid_last_reload_success == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Squid configuration reload failed on {{ $labels.unit }}
+      - alert: TerrasquidSquidServiceDown
+        expr: terrasquid_squid_service_running == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Squid service is down on {{ $labels.unit }}
+      - alert: TerrasquidAPIServiceDown
+        expr: terrasquid_api_service_running == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Terrasquid API service is down on {{ $labels.unit }}
