@@ -4,66 +4,65 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ('api', '0002_renderedconfighistory'),
+        ("api", "0002_renderedconfighistory"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='aclrule',
-            name='dst_group',
+            model_name="aclrule",
+            name="dst_group",
         ),
         migrations.AlterUniqueTogether(
-            name='portgroup',
+            name="portgroup",
             unique_together=None,
         ),
         migrations.RemoveField(
-            model_name='destinationconfig',
-            name='port_groups',
+            model_name="destinationconfig",
+            name="port_groups",
         ),
         migrations.AlterUniqueTogether(
-            name='sourcegroup',
+            name="sourcegroup",
             unique_together=None,
         ),
         migrations.RemoveField(
-            model_name='sourcegroup',
-            name='sources',
+            model_name="sourcegroup",
+            name="sources",
         ),
         migrations.RemoveField(
-            model_name='aclrule',
-            name='src_group',
+            model_name="aclrule",
+            name="src_group",
         ),
         migrations.RemoveField(
-            model_name='aclrule',
-            name='dst',
+            model_name="aclrule",
+            name="dst",
         ),
         migrations.RemoveField(
-            model_name='aclrule',
-            name='src',
+            model_name="aclrule",
+            name="src",
         ),
         migrations.AddField(
-            model_name='aclrule',
-            name='destinations',
-            field=models.ManyToManyField(related_name='rules', to='api.destinationconfig'),
+            model_name="aclrule",
+            name="destinations",
+            field=models.ManyToManyField(related_name="rules", to="api.destinationconfig"),
         ),
         migrations.AddField(
-            model_name='aclrule',
-            name='sources',
-            field=models.ManyToManyField(related_name='rules', to='api.sourceacl'),
+            model_name="aclrule",
+            name="sources",
+            field=models.ManyToManyField(related_name="rules", to="api.sourceacl"),
         ),
         migrations.AlterField(
-            model_name='configversion',
-            name='id',
-            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID'),
+            model_name="configversion",
+            name="id",
+            field=models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID"),
         ),
         migrations.DeleteModel(
-            name='DestinationGroup',
+            name="DestinationGroup",
         ),
         migrations.DeleteModel(
-            name='PortGroup',
+            name="PortGroup",
         ),
         migrations.DeleteModel(
-            name='SourceGroup',
+            name="SourceGroup",
         ),
     ]

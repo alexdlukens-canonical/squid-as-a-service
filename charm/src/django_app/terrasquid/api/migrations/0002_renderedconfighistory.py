@@ -1,6 +1,5 @@
 """Add RenderedConfigHistory table for per-version config pinning."""
 
-import django.utils.timezone
 from django.db import migrations, models
 
 

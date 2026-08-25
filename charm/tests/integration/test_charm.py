@@ -7,10 +7,14 @@ These tests deploy a real Juju model with PostgreSQL and verify that:
 - Basic CRUD on SourceACL resources works through the live API.
 """
 
+import subprocess
 import time
 
 import jubilant
 import requests
+
+JUJU_BIN = "/snap/juju/current/bin/juju"
+SQUID_CONF = "/etc/squid/squid.conf"
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -31,6 +35,17 @@ def _create_api_key(juju: jubilant.Juju, app: str, name: str) -> str:
     task = juju.run(f"{app}/0", "create-key", params={"name": name})
     assert task.success, f"create-key action failed: {task.results}"
     return task.results["key"]
+
+
+def _read_squid_conf(juju: jubilant.Juju, app: str) -> str:
+    """Return the applied Squid configuration from the first application unit."""
+    result = subprocess.run(
+        [JUJU_BIN, "exec", "--model", juju.model, "--unit", f"{app}/0", "--", "cat", SQUID_CONF],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return result.stdout
 
 
 # ── Tests ─────────────────────────────────────────────────────────────────────
@@ -54,6 +69,49 @@ def test_status_endpoint_is_accessible(juju, deployed_charms):
     assert "applied_config_version" in data
     assert "last_reload_ok" in data
     assert "unit" in data
+
+
+def test_metrics_endpoint_exposes_squid_configuration_versions(juju, deployed_charms):
+    """GET /metrics must expose desired and deployed Squid configuration versions."""
+    address = _unit_address(juju, deployed_charms["saas_app"])
+    response = requests.get(f"http://{address}:8080/metrics", timeout=10)
+    assert response.status_code == 200
+    assert "terrasquid_squid_config_desired_version" in response.text
+    assert "terrasquid_squid_config_applied_version" in response.text
+    assert "terrasquid_squid_config_version_skew" in response.text
+
+
+def test_otelcol_relation_keeps_terrasquid_active_and_metrics_reachable(juju, deployed_charms_with_otelcol):
+    """Terrasquid must remain active/idle and serve Django and Squid metrics after COS integration."""
+    app = deployed_charms_with_otelcol["saas_app"]
+    status = juju.status()
+    unit = status.apps[app].units[f"{app}/0"]
+    assert unit.workload_status.current == "active"
+    assert unit.juju_status.current == "idle"
+
+    address = _unit_address(juju, app)
+    response = requests.get(f"http://{address}:8080/metrics", timeout=10)
+    assert response.status_code == 200
+    assert "terrasquid_squid_config_applied_version" in response.text
+
+    exporter_response = subprocess.run(
+        [
+            JUJU_BIN,
+            "exec",
+            "--model",
+            juju.model,
+            "--unit",
+            f"{app}/0",
+            "--",
+            "curl",
+            "--fail",
+            "http://127.0.0.1:9301/metrics",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "squid_client_http_requests_total" in exporter_response.stdout
 
 
 def test_status_response_unit_matches_juju_unit(juju, deployed_charms):
@@ -134,6 +192,42 @@ def test_idempotent_source_acl_post(juju, deployed_charms):
     assert r1.json()["id"] == r2.json()["id"]
 
 
+def test_destination_group_create_and_lookup(juju, deployed_charms):
+    """A destination group can contain an owned destination and be resolved by name."""
+    app = deployed_charms["saas_app"]
+    address = _unit_address(juju, app)
+    key = _create_api_key(juju, app, "destination-group-test")
+    headers = {"Authorization": f"Api-Key {key}"}
+    base = _api_url(address)
+
+    destination_response = requests.post(
+        f"{base}/destinations/",
+        json={"name": "github", "dst": "github.com", "type": "CONNECT", "ports": [443]},
+        headers=headers,
+        timeout=10,
+    )
+    assert destination_response.status_code == 201
+
+    group_response = requests.post(
+        f"{base}/destination-groups/",
+        json={
+            "name": "common-sites-cloud-access",
+            "destinations": [destination_response.json()["id"]],
+        },
+        headers=headers,
+        timeout=10,
+    )
+    assert group_response.status_code == 201
+
+    lookup_response = requests.get(
+        f"{base}/destination-groups/?name=common-sites-cloud-access",
+        headers=headers,
+        timeout=10,
+    )
+    assert lookup_response.status_code == 200
+    assert lookup_response.json()[0]["id"] == group_response.json()["id"]
+
+
 def test_revoke_api_key_action(juju, deployed_charms):
     """After revoking an API key, requests using it must return 403."""
     address = _unit_address(juju, deployed_charms["saas_app"])
@@ -182,9 +276,7 @@ def _get_applied_config_version(juju: jubilant.Juju, app: str, unit_index: int =
     return response.json().get("applied_config_version", 0)
 
 
-def _wait_for_applied_version(
-    juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 60
-) -> None:
+def _wait_for_applied_version(juju: jubilant.Juju, app: str, expected_version: int, timeout: int = 180) -> None:
     """Poll until applied_config_version reaches expected_version."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -193,9 +285,7 @@ def _wait_for_applied_version(
             return
         time.sleep(3)
     current = _get_applied_config_version(juju, app)
-    raise AssertionError(
-        f"Applied version {current} did not reach {expected_version} within {timeout}s"
-    )
+    raise AssertionError(f"Applied version {current} did not reach {expected_version} within {timeout}s")
 
 
 def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -> int:
@@ -206,6 +296,20 @@ def _get_db_config_version(juju: jubilant.Juju, app: str, unit_index: int = 0) -
     return response.json().get("db_config_version", 0)
 
 
+def _set_pinned_config_version(juju: jubilant.Juju, app: str, version: int) -> None:
+    """Set the pinned version and wait for config-changed to update the unit environment."""
+    juju.config(app, {"squid-pinned-config-version": str(version)})
+    expected = f"SQUID_PINNED_CONFIG_VERSION={version}"
+    task = juju.exec(
+        "grep",
+        "-Fx",
+        expected,
+        "/etc/terrasquid/terrasquid.env",
+        unit=f"{app}/0",
+    )
+    assert task.stdout.strip() == expected
+
+
 def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     """When squid-pinned-config-version is set, the applied version must not advance beyond it."""
     app = deployed_charms["saas_app"]
@@ -213,45 +317,53 @@ def test_pinned_config_version_freezes_applied_config(juju, deployed_charms):
     key = _create_api_key(juju, app, "pin-test")
     headers = {"Authorization": f"Api-Key {key}"}
 
-    requests.post(
+    _set_pinned_config_version(juju, app, 0)
+    baseline_version = _get_db_config_version(juju, app)
+    task = juju.run(f"{app}/0", "reconfigure")
+    assert task.success, f"Initial reconfigure failed: {task.results}"
+    _wait_for_applied_version(juju, app, baseline_version)
+
+    response = requests.post(
         f"{_api_url(address)}/sources/",
         json={"name": "pin-src-v1", "cidr": ["10.10.0.0/16"]},
         headers=headers,
         timeout=10,
     )
-    juju.run(f"{app}/0", "reconfigure")
+    assert response.status_code == 201, response.text
+    task = juju.run(f"{app}/0", "reconfigure")
+    assert task.success, f"Reconfigure failed: {task.results}"
     _wait_for_applied_version(juju, app, 1)
 
     v1 = _get_applied_config_version(juju, app)
     assert v1 >= 1, "Expected at least one config version to have been applied"
 
-    juju.config(app, {"squid-pinned-config-version": str(v1)})
-    juju.wait(jubilant.all_active, timeout=60)
+    _set_pinned_config_version(juju, app, v1)
+    try:
+        response = requests.post(
+            f"{_api_url(address)}/sources/",
+            json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
+            headers=headers,
+            timeout=10,
+        )
+        assert response.status_code == 201, response.text
+        task = juju.run(f"{app}/0", "reconfigure")
+        assert task.success, f"Pinned reconfigure failed: {task.results}"
 
-    requests.post(
-        f"{_api_url(address)}/sources/",
-        json={"name": "pin-src-v2", "cidr": ["10.20.0.0/16"]},
-        headers=headers,
-        timeout=10,
-    )
-    juju.run(f"{app}/0", "reconfigure")
-    
-    applied_after = _get_applied_config_version(juju, app)
-    db_version_after = _get_db_config_version(juju, app)
+        applied_after = _get_applied_config_version(juju, app)
+        db_version_after = _get_db_config_version(juju, app)
 
-    assert db_version_after > v1, "DB version should have advanced after new resource was created"
-    assert applied_after == v1, (
-        f"Applied version {applied_after} should remain frozen at pinned version {v1}"
-    )
-
-    juju.config(app, {"squid-pinned-config-version": "0"})
-    juju.wait(jubilant.all_active, timeout=60)
-    juju.run(f"{app}/0", "reconfigure")
-    _wait_for_applied_version(juju, app, expected_version=db_version_after)
+        assert db_version_after > v1, "DB version should have advanced after new resource was created"
+        assert applied_after == v1, f"Applied version {applied_after} should remain frozen at pinned version {v1}"
+    finally:
+        _set_pinned_config_version(juju, app, 0)
+        latest_db_version = _get_db_config_version(juju, app)
+        task = juju.run(f"{app}/0", "reconfigure")
+        assert task.success, f"Cleanup reconfigure failed: {task.results}"
+        _wait_for_applied_version(juju, app, expected_version=latest_db_version)
 
     applied_unpinned = _get_applied_config_version(juju, app)
-    assert applied_unpinned == db_version_after, (
-        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {db_version_after}"
+    assert applied_unpinned == latest_db_version, (
+        f"After unpinning, applied version {applied_unpinned} should catch up to DB version {latest_db_version}"
     )
 
 
@@ -285,32 +397,64 @@ def test_proxy_acl_rule_allows_traffic(juju, deployed_charms):
 
     src_resp = requests.post(
         f"{base}/sources/",
-        json={"name": "all-clients", "cidr": ["0.0.0.0/0"]},
+        json={"name": "all-clients", "cidr": ["0.0.0.0/0"], "comment": "Proxy clients"},
         headers=headers,
         timeout=10,
     )
     assert src_resp.status_code == 201
-    src_id = src_resp.json()["id"]
+    source = src_resp.json()
+    assert source["comment"] == "Proxy clients"
+    src_id = source["id"]
 
     dst_resp = requests.post(
         f"{base}/destinations/",
-        json={"name": "google", "dst": ".google.com", "type": "ALLOW", "ports": [80]},
+        json={
+            "name": "google",
+            "dst": ".google.com",
+            "type": "ALLOW",
+            "ports": [80],
+            "comment": "Allowed Google destinations",
+        },
         headers=headers,
         timeout=10,
     )
     assert dst_resp.status_code == 201
-    dst_id = dst_resp.json()["id"]
+    destination = dst_resp.json()
+    assert destination["comment"] == "Allowed Google destinations"
+    dst_id = destination["id"]
 
     rule_resp = requests.post(
         f"{base}/acl-rules/",
-        json={"name": "allow-google", "sources": [src_id], "destinations": [dst_id], "priority": 10},
+        json={
+            "name": "allow-google",
+            "sources": [src_id],
+            "destinations": [dst_id],
+            "priority": 10,
+            "comment": "Allow clients to reach Google",
+        },
         headers=headers,
         timeout=10,
     )
     assert rule_resp.status_code == 201
+    rule = rule_resp.json()
+    assert rule["comment"] == "Allow clients to reach Google"
 
     expected_version = _get_db_config_version(juju, deployed_charms["saas_app"])
-    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=90)
+    _wait_for_applied_version(juju, deployed_charms["saas_app"], expected_version, timeout=180)
+
+    squid_conf = _read_squid_conf(juju, deployed_charms["saas_app"])
+    source_acl = f"acl src__{source['key_prefix']}__{source['name']}"
+    destination_acl = f"acl dst__{destination['key_prefix']}__{destination['name']}"
+    rule_destination_acl = f"rule_dst__{rule['key_prefix']}__{rule['name']}__1"
+    rule_port_acl = f"rule_dstport__{rule['key_prefix']}__{rule['name']}__1"
+    access_rule = (
+        f"http_access allow src__{source['key_prefix']}__{source['name']} "
+        f"{rule_destination_acl} {rule_port_acl}"
+    )
+    assert squid_conf.index("# Proxy clients") < squid_conf.index(source_acl)
+    assert squid_conf.index("# Allowed Google destinations") < squid_conf.index(destination_acl)
+    assert squid_conf.index("# Allow clients to reach Google") < squid_conf.index(access_rule)
+    assert squid_conf.count("# Allow clients to reach Google") == 1
 
     r_after = requests.get(
         "http://www.google.com",

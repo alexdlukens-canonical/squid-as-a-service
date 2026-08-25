@@ -24,6 +24,7 @@ from charms.data_platform_libs.v0.data_interfaces import (
     DatabaseEndpointsChangedEvent,
     DatabaseRequires,
 )
+from charms.grafana_agent.v0.cos_agent import COSAgentProvider
 from charms.traefik_k8s.v2.ingress import IngressPerAppRequirer
 
 import squid
@@ -47,6 +48,7 @@ GUNICORN_SERVICE = "terrasquid-api"
 GUNICORN_CONF_FILE = Path("/etc/terrasquid/gunicorn.conf.py")
 SQUID_WATCHER_SERVICE = "terrasquid-watcher"
 SQUID_WATCHER_TIMER = "terrasquid-watcher.timer"
+SQUID_EXPORTER_PORT = 9301
 
 
 class SquidAsAServiceCharm(ops.CharmBase):
@@ -63,6 +65,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self.certificates = TLSCertificatesRequiresV4(self, "certificates", certificate_requests=_cert_requests)
         self.django_ingress = IngressPerAppRequirer(self, relation_name="django-ingress")
         self.squid_ingress = IngressPerAppRequirer(self, relation_name="squid-ingress")
+        self.cos_agent = COSAgentProvider(
+            self,
+            metrics_rules_dir="./src/prometheus_alert_rules",
+            dashboard_dirs=["./src/grafana_dashboards"],
+            scrape_configs=self._cos_agent_scrape_configs,
+        )
 
         self.framework.observe(self.on.install, self._on_install)
         self.framework.observe(self.on.config_changed, self._on_config_changed)
@@ -111,6 +119,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._write_gunicorn_config()
         self._write_env_file()
         self._reload_gunicorn()
+        self._reload_squid_exporter()
         if self._gunicorn_running():
             self._open_ports()
         self._publish_django_ingress_requirements()
@@ -123,11 +132,12 @@ class SquidAsAServiceCharm(ops.CharmBase):
         self._start_services()
 
     def _on_stop(self, _event: ops.StopEvent) -> None:
-        for svc in (GUNICORN_SERVICE, SQUID_WATCHER_SERVICE, squid.SQUID_SERVICE):
+        for svc in (GUNICORN_SERVICE, SQUID_WATCHER_SERVICE, squid.SQUID_EXPORTER_SERVICE, squid.SQUID_SERVICE):
             subprocess.run(["systemctl", "stop", svc], capture_output=True)
         self.unit.set_ports()
 
     def _on_upgrade_charm(self, event: ops.UpgradeCharmEvent) -> None:
+        squid.install_squid()
         self._write_systemd_units()
         subprocess.run(["systemctl", "daemon-reload"], check=True)
         if not self._database_url():
@@ -143,6 +153,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
                 return
             self._run_manage("collectstatic", "--noinput")
             self._reload_gunicorn()
+            subprocess.run(["systemctl", "enable", "--now", squid.SQUID_EXPORTER_SERVICE], check=True)
         except subprocess.CalledProcessError as e:
             logger.error("Management command failed during charm upgrade: %s", e)
             self.unit.status = ops.BlockedStatus("Charm upgrade failed — check logs")
@@ -381,7 +392,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             SQUID_PORT={squid_port}
             SQUID_PREPEND_CONFIG={squid_prepend_config}
             SQUID_APPEND_CONFIG={squid_append_config}
-            SQUID_DEFAULT_DENY={'true' if squid_default_deny else 'false'}
+            SQUID_DEFAULT_DENY={"true" if squid_default_deny else "false"}
             SQUID_PINNED_CONFIG_VERSION={squid_pinned_config_version}
             TERRASQUID_STATUS_FILE={TERRASQUID_STATUS_FILE}
         """)
@@ -449,12 +460,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
             if CA_FILE.exists():
                 ssl_config += f'ca_certs = "{CA_FILE}"\n'
 
-        content = (
-            f'bind = "[::]:{api_port}"\n'
-            f"workers = {workers}\n"
-            "timeout = 120\n"
-            'worker_class = "sync"\n' + ssl_config
-        )
+        content = f'bind = "[::]:{api_port}"\nworkers = {workers}\ntimeout = 120\nworker_class = "sync"\n' + ssl_config
         GUNICORN_CONF_FILE.parent.mkdir(parents=True, exist_ok=True)
         GUNICORN_CONF_FILE.write_text(content)
 
@@ -516,16 +522,43 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """)
         Path(f"/etc/systemd/system/{SQUID_WATCHER_TIMER}").write_text(watcher_timer)
 
+        exporter_unit = textwrap.dedent(f"""\
+            [Unit]
+            Description=Terrasquid Squid Prometheus exporter
+            After={squid.SQUID_SERVICE}.service
+            Wants={squid.SQUID_SERVICE}.service
+
+            [Service]
+            EnvironmentFile={TERRASQUID_ENV_FILE}
+            ExecStart=/usr/bin/prometheus-squid-exporter \
+                --squid-hostname localhost \
+                --squid-port $SQUID_PORT \
+                --listen 127.0.0.1:{SQUID_EXPORTER_PORT}
+            Restart=on-failure
+            RestartSec=5s
+            StandardOutput=journal
+            StandardError=journal
+
+            [Install]
+            WantedBy=multi-user.target
+        """)
+        Path(f"/etc/systemd/system/{squid.SQUID_EXPORTER_SERVICE}.service").write_text(exporter_unit)
+
     def _start_services(self) -> None:
         """Enable and start all managed systemd services."""
         subprocess.run(["systemctl", "enable", "--now", GUNICORN_SERVICE], check=True)
         subprocess.run(["systemctl", "enable", "--now", SQUID_WATCHER_TIMER], check=True)
         subprocess.run(["systemctl", "enable", "--now", squid.SQUID_SERVICE], check=True)
+        subprocess.run(["systemctl", "enable", "--now", squid.SQUID_EXPORTER_SERVICE], check=True)
         self._open_ports()
 
     def _reload_gunicorn(self) -> None:
         """Send SIGHUP to Gunicorn to reload workers."""
         subprocess.run(["systemctl", "reload-or-restart", GUNICORN_SERVICE], capture_output=True)
+
+    def _reload_squid_exporter(self) -> None:
+        """Restart the exporter after its Squid listener configuration changes."""
+        subprocess.run(["systemctl", "reload-or-restart", squid.SQUID_EXPORTER_SERVICE], capture_output=True)
 
     def _gunicorn_running(self) -> bool:
         """Return True if the Gunicorn service is active."""
@@ -549,6 +582,19 @@ class SquidAsAServiceCharm(ops.CharmBase):
         squid_port = int(self.config.get("squid-port", 3128))
         ip = self._unit_ipv4_address("squid-ingress")
         self.squid_ingress.provide_ingress_requirements(port=squid_port, ip=ip)
+
+    def _cos_agent_scrape_configs(self) -> list[dict]:
+        """Build the local Prometheus scrape target from the current API port."""
+        return [
+            {
+                "metrics_path": "/metrics",
+                "static_configs": [{"targets": [f"localhost:{int(self.config.get('api-port', 8080))}"]}],
+            },
+            {
+                "metrics_path": "/metrics",
+                "static_configs": [{"targets": [f"localhost:{SQUID_EXPORTER_PORT}"]}],
+            },
+        ]
 
     def _unit_ipv4_address(self, relation_name: str) -> str | None:
         """Return the unit's IPv4 bind address for the given ingress relation.

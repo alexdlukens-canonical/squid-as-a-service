@@ -67,6 +67,31 @@ class TestSourceACLEndpoints(TestCase):
         assert data["name"] == "corp-vpn"
         assert data["service"] == "test-service"
         assert "10.0.0.0/8" in data["cidr"]
+        assert data["comment"] == ""
+
+    def test_create_source_acl_with_comment(self) -> None:
+        """POST /sources/ accepts and returns a single-line comment."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/sources/",
+                {"name": "documented-src", "cidr": ["10.0.0.0/8"], "comment": "Corporate VPN"},
+                format="json",
+            )
+        assert response.status_code == 201
+        assert response.json()["comment"] == "Corporate VPN"
+
+    def test_create_source_acl_rejects_multiline_comment(self) -> None:
+        """POST /sources/ rejects comments that would add Squid config lines."""
+        response = self.client.post(
+            "/api/v1/sources/",
+            {"name": "multiline-src", "cidr": ["10.0.0.0/8"], "comment": "first\nsecond"},
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "comment" in response.json()
 
     def test_create_idempotent_returns_200(self) -> None:
         """Duplicate POST with same (service, name) returns 200 with existing resource."""
@@ -174,13 +199,19 @@ class TestDestinationConfigEndpoints(TestCase):
         ):
             response = self.client.post(
                 "/api/v1/destinations/",
-                {"name": "ubuntu-archive", "dst": "archive.ubuntu.com", "type": "ALLOW"},
+                {
+                    "name": "ubuntu-archive",
+                    "dst": "archive.ubuntu.com",
+                    "type": "ALLOW",
+                    "comment": "Ubuntu package mirror",
+                },
                 format="json",
             )
         assert response.status_code == 201
         data = response.json()
         assert data["dst"] == "archive.ubuntu.com"
         assert data["type"] == "ALLOW"
+        assert data["comment"] == "Ubuntu package mirror"
 
     def test_delete_referenced_destination_returns_409(self) -> None:
         """DELETE on a destination referenced by an ACL rule should return 409."""
@@ -208,6 +239,118 @@ class TestDestinationConfigEndpoints(TestCase):
         rule.destinations.add(dst)
         with patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"):
             response = self.client.delete(f"/api/v1/destinations/{dst.id}/")
+        assert response.status_code == 409
+
+
+class TestDestinationGroupEndpoints(TestCase):
+    """Tests for globally readable, owner-managed destination groups."""
+
+    def setUp(self) -> None:
+        self.client, self.api_key, self.raw_key = _make_client()
+        from terrasquid.api.models import DestinationConfig
+
+        self.destination = DestinationConfig.objects.create(
+            service="test-service",
+            name="github",
+            key_prefix="ab12cd34",
+            dst="github.com",
+            type="CONNECT",
+            ports=[22, 443],
+        )
+        other_key, other_raw = APIKey.objects.create_key(name="other-service")
+        self.other_client = APIClient()
+        self.other_client.credentials(HTTP_AUTHORIZATION=f"Api-Key {other_raw}")
+
+    def test_group_is_readable_and_referenceable_by_another_service(self) -> None:
+        """Any authenticated service can resolve a group and attach it to a local rule."""
+        from terrasquid.api.models import SourceACL
+
+        source = SourceACL.objects.create(
+            service="other-service",
+            name="other-source",
+            key_prefix="dc34ab12",
+            cidr=["10.0.0.0/8"],
+        )
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            create_response = self.client.post(
+                "/api/v1/destination-groups/",
+                {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+                format="json",
+            )
+            group_id = create_response.json()["id"]
+            lookup_response = self.other_client.get("/api/v1/destination-groups/?name=common-sites-cloud-access")
+            rule_response = self.other_client.post(
+                "/api/v1/acl-rules/",
+                {
+                    "name": "allow-common-sites",
+                    "sources": [str(source.id)],
+                    "destination_groups": [group_id],
+                },
+                format="json",
+            )
+        assert create_response.status_code == 201
+        assert lookup_response.status_code == 200
+        assert lookup_response.json()[0]["id"] == group_id
+        assert rule_response.status_code == 201
+        assert rule_response.json()["destination_groups"] == [group_id]
+
+    def test_group_listing_does_not_enumerate_other_services(self) -> None:
+        """A consumer must provide a group name to resolve another service's group."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            self.client.post(
+                "/api/v1/destination-groups/",
+                {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+                format="json",
+            )
+
+        response = self.other_client.get("/api/v1/destination-groups/")
+
+        assert response.status_code == 200
+        assert response.json() == []
+
+    def test_non_owner_cannot_modify_or_delete_group(self) -> None:
+        """Only the service that created a group may alter its lifecycle."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            response = self.client.post(
+                "/api/v1/destination-groups/",
+                {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+                format="json",
+            )
+        group_id = response.json()["id"]
+        update_response = self.other_client.put(
+            f"/api/v1/destination-groups/{group_id}/",
+            {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+            format="json",
+        )
+        delete_response = self.other_client.delete(f"/api/v1/destination-groups/{group_id}/")
+        assert update_response.status_code == 403
+        assert delete_response.status_code == 403
+
+    def test_global_group_name_conflict_returns_409(self) -> None:
+        """A globally unique group name cannot be claimed by another service."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            self.client.post(
+                "/api/v1/destination-groups/",
+                {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+                format="json",
+            )
+            response = self.other_client.post(
+                "/api/v1/destination-groups/",
+                {"name": "common-sites-cloud-access", "destinations": [str(self.destination.id)]},
+                format="json",
+            )
         assert response.status_code == 409
 
 
@@ -248,6 +391,7 @@ class TestACLRuleEndpoints(TestCase):
                     "name": "allow-corp-to-ubuntu",
                     "sources": [str(self.src.id)],
                     "destinations": [str(self.dst.id)],
+                    "comment": "Permit corporate users",
                 },
                 format="json",
             )
@@ -255,6 +399,7 @@ class TestACLRuleEndpoints(TestCase):
         data = response.json()
         assert data["sources"] == [str(self.src.id)]
         assert data["destinations"] == [str(self.dst.id)]
+        assert data["comment"] == "Permit corporate users"
 
     def test_acl_rule_requires_at_least_one_source(self) -> None:
         """ACL rule with an empty sources list returns 400."""
@@ -272,6 +417,30 @@ class TestACLRuleEndpoints(TestCase):
             {"name": "bad-rule2", "sources": [str(self.src.id)]},
             format="json",
         )
+        assert response.status_code == 400
+
+    def test_acl_rule_patch_cannot_remove_its_last_destination_reference(self) -> None:
+        """A partial update cannot leave a rule without a destination or group."""
+        with (
+            patch("terrasquid.api.squid_render.validate_squid_config", return_value=(True, "")),
+            patch("terrasquid.api.squid_render.render_squid_config", return_value="# config"),
+        ):
+            create_response = self.client.post(
+                "/api/v1/acl-rules/",
+                {
+                    "name": "allow-corp-to-ubuntu",
+                    "sources": [str(self.src.id)],
+                    "destinations": [str(self.dst.id)],
+                },
+                format="json",
+            )
+            response = self.client.patch(
+                f"/api/v1/acl-rules/{create_response.json()['id']}/",
+                {"destinations": []},
+                format="json",
+            )
+
+        assert create_response.status_code == 201
         assert response.status_code == 400
 
     def test_acl_rule_rejects_foreign_source(self) -> None:
@@ -297,7 +466,6 @@ class TestACLRuleEndpoints(TestCase):
 
     def test_rendered_config_includes_acl_rule(self) -> None:
         """When an ACL rule is created, the rendered config must include its http_access statement."""
-        from terrasquid.api.views import _post_write_render
         from terrasquid.api.models import ConfigVersion
 
         with (
@@ -373,6 +541,153 @@ class TestSquidConfigValidation(TestCase):
         assert "dstport__ab12cd34__stg-terrasquid-ps7-client-terraform port 443" in config
         assert "dstport__terrasquid-admin-key__" not in config
 
+    def test_render_expands_destination_groups_without_duplicates(self) -> None:
+        """Direct and grouped references to one destination render one access rule."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, DestinationGroup, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="consumer-service",
+            name="local-source",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+        )
+        destination = DestinationConfig.objects.create(
+            service="owner-service",
+            name="github",
+            key_prefix="dc34ab12",
+            dst="github.com",
+            type="CONNECT",
+            ports=[443],
+        )
+        group = DestinationGroup.objects.create(
+            service="owner-service",
+            name="common-sites-cloud-access",
+            key_prefix="dc34ab12",
+        )
+        group.destinations.add(destination)
+        rule = ACLRule.objects.create(
+            service="consumer-service",
+            name="allow-common-sites",
+            key_prefix="ab12cd34",
+        )
+        rule.sources.add(source)
+        rule.destinations.add(destination)
+        rule.destination_groups.add(group)
+
+        config = render_squid_config()
+
+        assert config.count("http_access allow src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 1
+
+    def test_render_partitions_destination_groups_by_access_policy(self) -> None:
+        """Only compatible destinations share a Squid ACL and access rule."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, DestinationGroup, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="consumer-service",
+            name="local-source",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+        )
+        destinations = [
+            DestinationConfig.objects.create(
+                service="owner-service",
+                name="github",
+                key_prefix="dc34ab12",
+                dst="github.com",
+                type="CONNECT",
+                ports=[443],
+            ),
+            DestinationConfig.objects.create(
+                service="owner-service",
+                name="google",
+                key_prefix="dc34ab12",
+                dst="google.com",
+                type="CONNECT",
+                ports=[443],
+            ),
+            DestinationConfig.objects.create(
+                service="owner-service",
+                name="ssh",
+                key_prefix="dc34ab12",
+                dst="ssh.example.com",
+                type="CONNECT",
+                ports=[22, 443],
+            ),
+            DestinationConfig.objects.create(
+                service="owner-service",
+                name="blocked",
+                key_prefix="dc34ab12",
+                dst="blocked.example.com",
+                type="DENY",
+                ports=[443],
+            ),
+            DestinationConfig.objects.create(
+                service="owner-service",
+                name="network",
+                key_prefix="dc34ab12",
+                dst="192.0.2.0/24",
+                type="CONNECT",
+                ports=[443],
+            ),
+        ]
+        group = DestinationGroup.objects.create(
+            service="owner-service", name="common-sites-cloud-access", key_prefix="dc34ab12"
+        )
+        group.destinations.add(*destinations)
+        rule = ACLRule.objects.create(service="consumer-service", name="allow-common-sites", key_prefix="ab12cd34")
+        rule.sources.add(source)
+        rule.destination_groups.add(group)
+
+        config = render_squid_config()
+
+        assert "dstdomain github.com google.com" in config
+        assert "dstdomain ssh.example.com" in config
+        assert "dstdomain blocked.example.com" in config
+        assert "dst 192.0.2.0/24" in config
+        assert config.count("acl rule_dst__ab12cd34__allow-common-sites__") == 4
+        assert config.count("http_access allow src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 3
+        assert config.count("http_access deny src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 1
+
+    def test_render_places_comments_before_their_acl_blocks(self) -> None:
+        """Configured comments label their source, destination, and logical rule exactly once."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="test-service",
+            name="commented-source",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/8"],
+            comment="Source networks",
+        )
+        destination = DestinationConfig.objects.create(
+            service="test-service",
+            name="commented-destination",
+            key_prefix="ab12cd34",
+            dst="example.com",
+            type="ALLOW",
+            comment="Allowed website",
+        )
+        rule = ACLRule.objects.create(
+            service="test-service",
+            name="commented-rule",
+            key_prefix="ab12cd34",
+            comment="Permit source to website",
+        )
+        rule.sources.add(source)
+        rule.destinations.add(destination)
+
+        config = render_squid_config()
+
+        assert config.index("# Source networks") < config.index("acl src__ab12cd34__commented-source")
+        assert config.index("# Allowed website") < config.index("acl dst__ab12cd34__commented-destination")
+        assert config.index("# Permit source to website") < config.index(
+            "http_access allow src__ab12cd34__commented-source"
+        )
+        assert config.count("# Permit source to website") == 1
+
     def test_squid_validation_failure_returns_422(self) -> None:
         """When Squid config validation fails, the API returns 422 and rolls back."""
         with (
@@ -432,8 +747,9 @@ class TestRenderSquidConfigPinning(TestCase):
     """Tests for the render_squid_config management command with version pinning."""
 
     def _run_command(self, stdout=None, stderr=None):
-        from django.core.management import call_command
         from io import StringIO
+
+        from django.core.management import call_command
 
         out = stdout or StringIO()
         err = stderr or StringIO()
@@ -446,23 +762,28 @@ class TestRenderSquidConfigPinning(TestCase):
     def test_unpinned_applies_latest(self, mock_validate, mock_render) -> None:
         """When no version is pinned, the command applies the latest config."""
         import tempfile
-        from terrasquid.api.models import ConfigVersion
         from pathlib import Path
         from unittest.mock import patch as p
+
+        from terrasquid.api.models import ConfigVersion
 
         ConfigVersion.increment("# config v1")
         with tempfile.TemporaryDirectory() as tmpdir:
             squid_conf = Path(tmpdir) / "squid.conf"
             squid_conf_new = Path(tmpdir) / "squid.conf.new"
             status_file = Path(tmpdir) / "status.json"
-            with p(
-                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
-                squid_conf,
-            ), p(
-                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
-                squid_conf_new,
-            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
-            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+            with (
+                p(
+                    "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                    squid_conf,
+                ),
+                p(
+                    "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                    squid_conf_new,
+                ),
+                p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)),
+                p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)),
+            ):
                 out, err = self._run_command()
         assert "unchanged" in out or "Applied" in out or "reloaded" in out.lower()
         assert not err
@@ -483,26 +804,32 @@ class TestRenderSquidConfigPinning(TestCase):
     @patch("django.conf.settings.SQUID_PINNED_CONFIG_VERSION", 1)
     def test_pinned_version_applies_correct_config(self, mock_validate) -> None:
         """When pinned, the command applies the config stored for that exact version."""
-        from terrasquid.api.models import ConfigVersion, RenderedConfigHistory
         from pathlib import Path
         from unittest.mock import patch as p
+
+        from terrasquid.api.models import ConfigVersion
 
         ConfigVersion.increment("# config v1 - pinned target")
         ConfigVersion.increment("# config v2 - should not be applied")
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             squid_conf = Path(tmpdir) / "squid.conf"
             squid_conf_new = Path(tmpdir) / "squid.conf.new"
             status_file = Path(tmpdir) / "status.json"
-            with p(
-                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
-                squid_conf,
-            ), p(
-                "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
-                squid_conf_new,
-            ), p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)
-            ), p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)):
+            with (
+                p(
+                    "terrasquid.api.management.commands.render_squid_config.SQUID_CONF",
+                    squid_conf,
+                ),
+                p(
+                    "terrasquid.api.management.commands.render_squid_config.SQUID_CONF_NEW",
+                    squid_conf_new,
+                ),
+                p("django.conf.settings.TERRASQUID_STATUS_FILE", str(status_file)),
+                p("subprocess.run", return_value=__import__("subprocess").CompletedProcess([], 0)),
+            ):
                 out, err = self._run_command()
 
         assert not err

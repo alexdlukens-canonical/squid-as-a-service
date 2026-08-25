@@ -52,9 +52,7 @@ class Command(BaseCommand):
             try:
                 history_entry = RenderedConfigHistory.objects.get(version=pinned_version)
             except RenderedConfigHistory.DoesNotExist:
-                self.stdout.write(
-                    f"Pinned config version {pinned_version} has not been rendered yet; skipping."
-                )
+                self.stdout.write(f"Pinned config version {pinned_version} has not been rendered yet; skipping.")
                 return
             self._apply(history_entry.rendered_config, pinned_version)
             return
@@ -79,7 +77,7 @@ class Command(BaseCommand):
             self.stderr.write(f"Squid config validation failed: {err}")
             sys.exit(1)
 
-        SQUID_CONF_BAK = SQUID_CONF.with_suffix(".conf.bak")
+        SQUID_CONF_BAK = SQUID_CONF.with_suffix(".conf.bak")  # noqa: N806
         if SQUID_CONF.exists():
             SQUID_CONF.replace(SQUID_CONF_BAK)
         SQUID_CONF_NEW.replace(SQUID_CONF)

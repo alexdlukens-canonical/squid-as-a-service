@@ -6,6 +6,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     ACLRuleViewSet,
     DestinationConfigViewSet,
+    DestinationGroupViewSet,
     SourceACLViewSet,
     StatusView,
 )
@@ -13,6 +14,7 @@ from .views import (
 router = DefaultRouter()
 router.register(r"sources", SourceACLViewSet, basename="sourceacl")
 router.register(r"destinations", DestinationConfigViewSet, basename="destinationconfig")
+router.register(r"destination-groups", DestinationGroupViewSet, basename="destinationgroup")
 router.register(r"acl-rules", ACLRuleViewSet, basename="aclrule")
 
 urlpatterns = [

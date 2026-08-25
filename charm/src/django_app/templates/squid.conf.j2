@@ -5,16 +5,28 @@
 http_port [::]:{{ squid_port }}
 coredump_dir /var/spool/squid
 
+# Cache-manager statistics are available only to the local exporter.
+acl manager proto cache_object
+acl localhost src 127.0.0.1/32 ::1
+http_access allow localhost manager
+http_access deny manager
+
 {% if squid_prepend_config %}
 {{ squid_prepend_config }}
 {% endif %}
 # ======= Source ACLs =======
 {% for src in source_acls %}
+{% if src.comment %}
+# {{ src.comment }}
+{% endif %}
 acl src__{{ src.key_prefix }}__{{ src.name }} src {{ src.cidr | join(' ') }}
 {% endfor %}
 
 # ======= Destination ACLs =======
 {% for dst in destination_configs %}
+{% if dst.comment %}
+# {{ dst.comment }}
+{% endif %}
 {% if dst.is_cidr %}
 acl dst__{{ dst.key_prefix }}__{{ dst.name }} dst {{ dst.dst }}
 {% else %}
@@ -25,10 +37,15 @@ acl dstport__{{ dst.key_prefix }}__{{ dst.name }} port {{ dst.effective_ports() 
 
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
-{% for dst in rule.destinations.all() %}
-{% set action = 'allow' if dst.type in ('ALLOW', 'CONNECT') else 'deny' %}
+{% if rule.comment %}
+# {{ rule.comment }}
+{% endif %}
+{% for bucket in rule.effective_destination_buckets %}
+{% set action = 'allow' if bucket.type in ('ALLOW', 'CONNECT') else 'deny' %}
+acl rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} {{ bucket.destination_kind }} {% for dst in bucket.destinations %}{{ dst.dst }}{% if not loop.last %} {% endif %}{% endfor %}{{ '\n' }}
+acl rule_dstport__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} port {{ bucket.ports | join(' ') }}
 {% for src in rule.sources.all() %}
-http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} dst__{{ dst.key_prefix }}__{{ dst.name }} dstport__{{ dst.key_prefix }}__{{ dst.name }}
+http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} rule_dstport__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }}
 {% endfor %}
 {% endfor %}
 {% endfor %}

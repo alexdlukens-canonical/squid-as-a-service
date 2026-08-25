@@ -105,9 +105,6 @@ requires:
   database:
     interface: postgresql_client
     limit: 1
-  cos-agent:
-    interface: cos_agent
-    optional: true
   certificates:
     interface: tls-certificates
   django-ingress:
@@ -118,6 +115,11 @@ requires:
     interface: ingress
     limit: 1
     optional: true
+
+provides:
+  cos-agent:
+    interface: cos_agent
+    limit: 1
 
 charm-libs:
   - lib: data_platform_libs.data_interfaces

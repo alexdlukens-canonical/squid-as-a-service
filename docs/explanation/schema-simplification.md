@@ -11,24 +11,28 @@ The original model exposed six resources (`source_acl`, `source_group`,
 `destination_config`, `destination_group`, `port_group`, `acl_rule`) and three
 data sources (`source_group`, `destination_group`, `status`). Several of these
 existed only to work around a single limitation: an `acl_rule` could reference
-exactly one source and one destination. This produced redundant grouping
-resources, a fragile mutual-exclusivity rule, and two parallel ways to express
-destination ports.
+exactly one source and one destination. This produced redundant source and port
+grouping resources, a fragile mutual-exclusivity rule, and two parallel ways to
+express destination ports.
 
 ## Decisions
 
-### 1. Collapse the grouping layer
+### 1. Retain shared destination groups
 
-The `source_group` and `destination_group` resources (and their matching data
-sources) are removed. Instead, `acl_rule` references lists directly:
+The `source_group` resource and data source are removed. `acl_rule` references
+lists directly:
 
 - `sources` — list of `source_acl` IDs (at least one required)
-- `destinations` — list of `destination_config` IDs (at least one required)
+- `destinations` — optional list of `destination_config` IDs
+- `destination_groups` — optional list of shared `destination_group` IDs
 
-This removes two resources and two data sources, and eliminates the
-`src` XOR `src_group` / `dst` XOR `dst_group` validation. Individual sources and
-destinations remain reusable across rules because a `source_acl` already holds a
-list of CIDRs and a `destination_config` already holds its ports.
+An ACL rule requires at least one direct destination or destination group.
+Destination groups remain because they let an owner define a reusable set of
+common sites once and let other authenticated services reference it by globally
+unique name. The owner alone can modify or delete a group.
+
+This eliminates `src` XOR `src_group` / `dst` XOR `dst_group` validation while
+preserving a reusable destination abstraction for cross-service access policies.
 
 ### 2. Remove the standalone port group
 
@@ -48,11 +52,11 @@ contract (`service` already identifies the namespace) is unchanged.
 
 ### Retained resources
 
-`source_acl`, `destination_config`, `acl_rule`.
+`source_acl`, `destination_config`, `destination_group`, `acl_rule`.
 
 ### Retained data source
 
-`status`.
+`status`, `destination_group`.
 
 ### `source_acl`
 
@@ -71,6 +75,18 @@ computed `id`, `service`, `created_at`, `updated_at`.
 
 The `port_groups` field is removed.
 
+### `destination_group`
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | Globally unique friendly name |
+| `destinations` | list[string] | yes | Owner service `destination_config` IDs, at least one |
+| `comment` | string | no | |
+| `id`, `service`, `created_at`, `updated_at` | | computed | |
+
+All authenticated services can resolve a group by its exact name. Listing
+without a name returns only groups owned by the authenticated service.
+
 ### `acl_rule`
 
 | Field | Type | Required | Notes |
@@ -78,24 +94,28 @@ The `port_groups` field is removed.
 | `name` | string | yes | |
 | `priority` | int | no | default 100, ascending evaluation |
 | `sources` | list[string] | yes | `source_acl` IDs, at least one |
-| `destinations` | list[string] | yes | `destination_config` IDs, at least one |
+| `destinations` | list[string] | no | Direct `destination_config` IDs |
+| `destination_groups` | list[string] | no | Shared `destination_group` IDs |
 | `id`, `service`, `created_at`, `updated_at` | | computed | |
 
-The `src`, `src_group`, `dst`, `dst_group` fields are removed.
+At least one of `destinations` or `destination_groups` is required. The `src`,
+`src_group`, `dst`, and `dst_group` fields are removed.
 
 ## Squid rendering
 
-Each `acl_rule` renders one `http_access` line per (source, destination) pair.
-Because `http_access` lines are evaluated top to bottom with first match wins,
-emitting one line per source expresses "any of these sources" correctly:
+Each `acl_rule` combines direct and grouped destinations, deduplicates them,
+and partitions them by destination type, effective port set, and destination
+kind (`dst` for CIDRs or `dstdomain` for names). Each compatible partition emits
+one destination ACL, one port ACL, and one `http_access` line per source:
 
 ```
-http_access <action> src__<svc>__<src> dst__<svc>__<dst> dstport__<svc>__<dst>
+http_access <action> src__<svc>__<src> rule_dst__<rule>__<bucket> rule_dstport__<rule>__<bucket>
 ```
 
 The action is `allow` when the destination `type` is `ALLOW` or `CONNECT`, and
-`deny` otherwise. The source-group, destination-group, and port-group sections
-of the template are removed.
+`deny` otherwise. Partitioning prevents an unconfigured site/port combination
+from being allowed. The source-group and port-group sections of the template are
+removed.
 
 ## Breaking changes
 
@@ -103,6 +123,6 @@ This is a breaking API change (new major version):
 
 - `POST/PUT` payloads for `acl_rule` use `sources`/`destinations` instead of
   `src`/`src_group`/`dst`/`dst_group`.
-- The `/source-groups/`, `/destination-groups/`, and `/port-groups/` endpoints
-  are removed.
+- The `/source-groups/` and `/port-groups/` endpoints are removed.
+- The `/destination-groups/` endpoint remains for shared destination sets.
 - The `destination_config.port_groups` field is removed.

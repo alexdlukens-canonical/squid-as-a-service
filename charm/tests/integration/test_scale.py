@@ -5,6 +5,7 @@ resources from other test modules bleed into the generated Squid configuration
 file being verified.
 """
 
+import re
 import secrets
 import subprocess
 import time
@@ -31,6 +32,7 @@ _UNIT_ENV_FILE = "/etc/terrasquid/terrasquid.env"
 _SQUID_CONF = "/etc/squid/squid.conf"
 
 SOURCE_COUNT = 1000
+_ACL_KEY_PREFIX = re.compile(r"\b(?P<kind>src|dst|dstport|rule_dst|rule_dstport)__[A-Za-z0-9]+__")
 
 # Local snapshot file — persists across runs so the config can be diffed.
 _SNAPSHOT_PATH = CHARM_DIR / "tests" / "integration" / "squid_scale_snapshot.conf"
@@ -117,6 +119,32 @@ def _read_unit_squid_conf(model: str) -> str:
     return _juju_exec(model, f"cat {_SQUID_CONF}")
 
 
+def _canonical_squid_conf(config: str) -> str:
+    """Remove deployment-specific ACL prefixes and stabilize generated allow rules."""
+    lines = [
+        _ACL_KEY_PREFIX.sub(lambda match: f"{match['kind']}__KEY_PREFIX__", line)
+        for line in config.splitlines(keepends=True)
+    ]
+    generated_allow_rules = iter(sorted(line for line in lines if line.startswith("http_access allow src__")))
+    return "".join(
+        next(generated_allow_rules) if line.startswith("http_access allow src__") else line for line in lines
+    )
+
+
+def _assert_squid_conf_matches_snapshot(config: str, snapshot_path: Path) -> None:
+    canonical_config = _canonical_squid_conf(config)
+    if snapshot_path.exists():
+        snapshot = _canonical_squid_conf(snapshot_path.read_text())
+        if canonical_config != snapshot:
+            new_path = snapshot_path.with_suffix(snapshot_path.suffix + ".new")
+            new_path.write_text(canonical_config)
+        assert canonical_config == snapshot, (
+            f"The Squid config differs from the previous run's snapshot at {snapshot_path}."
+        )
+    else:
+        snapshot_path.write_text(canonical_config)
+
+
 # ── Test ──────────────────────────────────────────────────────────────────────
 
 
@@ -154,17 +182,7 @@ def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_char
 
         model = juju_model_deployed.model
         file_on_disk = _read_unit_squid_conf(model)
-
-        if _SNAPSHOT_PATH.exists():
-            snapshot = _SNAPSHOT_PATH.read_text()
-            if file_on_disk != snapshot:
-                new_path = _SNAPSHOT_PATH.with_suffix(_SNAPSHOT_PATH.suffix + ".new")
-                new_path.write_text(file_on_disk)
-            assert file_on_disk == snapshot, (
-                f"The Squid config differs from the previous run's snapshot at {_SNAPSHOT_PATH}."
-            )
-        else:
-            _SNAPSHOT_PATH.write_text(file_on_disk)
+        _assert_squid_conf_matches_snapshot(file_on_disk, _SNAPSHOT_PATH)
 
     finally:
         # Clean up the created sources so they don't affect other tests or future runs.
@@ -302,16 +320,7 @@ def test_create_all_resources(juju_model_deployed, deploy_charms):
 
         # Verify the config is deterministic by checking it matches a snapshot
         snapshot_path = CHARM_DIR / "tests" / "integration" / "squid_all_resources_snapshot.conf"
-        if snapshot_path.exists():
-            snapshot = snapshot_path.read_text()
-            if file_on_disk != snapshot:
-                new_path = snapshot_path.with_suffix(snapshot_path.suffix + ".new")
-                new_path.write_text(file_on_disk)
-            assert file_on_disk == snapshot, (
-                f"The Squid config differs from the previous run's snapshot at {snapshot_path}."
-            )
-        else:
-            snapshot_path.write_text(file_on_disk)
+        _assert_squid_conf_matches_snapshot(file_on_disk, snapshot_path)
 
     finally:
         # Clean up all created rules

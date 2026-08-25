@@ -27,6 +27,7 @@ class SourceACL(BaseResource):
     """A source access control list entry representing a set of CIDRs."""
 
     cidr = models.JSONField(default=list)
+    comment = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         unique_together = [("service", "name")]
@@ -47,6 +48,7 @@ class DestinationConfig(BaseResource):
     dst = models.TextField()
     type = models.CharField(max_length=10, choices=ActionType.choices)
     ports = models.JSONField(default=list, null=True, blank=True)
+    comment = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
         unique_together = [("service", "name")]
@@ -72,12 +74,28 @@ class DestinationConfig(BaseResource):
         return sorted(result)
 
 
+class DestinationGroup(BaseResource):
+    """A globally named collection of reusable destination configurations."""
+
+    comment = models.CharField(max_length=255, blank=True, default="")
+    destinations = models.ManyToManyField(DestinationConfig, related_name="groups")
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["name"], name="unique_destination_group_name")]
+
+    def __str__(self) -> str:
+        """Return the string representation."""
+        return self.name
+
+
 class ACLRule(BaseResource):
     """A Squid ACL rule pairing sources and destinations with a priority."""
 
     priority = models.IntegerField(default=100)
+    comment = models.CharField(max_length=255, blank=True, default="")
     sources = models.ManyToManyField(SourceACL, related_name="rules")
     destinations = models.ManyToManyField(DestinationConfig, related_name="rules")
+    destination_groups = models.ManyToManyField(DestinationGroup, related_name="rules", blank=True)
 
     class Meta:
         unique_together = [("service", "name")]
@@ -86,21 +104,52 @@ class ACLRule(BaseResource):
         """Return the string representation."""
         return f"{self.service}/{self.name}"
 
+    @property
+    def effective_destinations(self) -> list[DestinationConfig]:
+        """Return direct and grouped destinations without duplicate entries."""
+        destinations = {destination.id: destination for destination in self.destinations.all()}
+        for destination_group in self.destination_groups.all():
+            for destination in destination_group.destinations.all():
+                destinations[destination.id] = destination
+        return list(destinations.values())
+
+    @property
+    def effective_destination_buckets(self) -> list[dict]:
+        """Return effective destinations partitioned into safe Squid access-list buckets."""
+        buckets: dict[tuple[str, tuple[int, ...], str], list[DestinationConfig]] = {}
+        for destination in self.effective_destinations:
+            destination_kind = "dst" if destination.is_cidr else "dstdomain"
+            key = (destination.type, tuple(destination.effective_ports()), destination_kind)
+            buckets.setdefault(key, []).append(destination)
+
+        return [
+            {
+                "index": index,
+                "type": action_type,
+                "ports": ports,
+                "destination_kind": destination_kind,
+                "destinations": sorted(destinations, key=lambda destination: destination.dst),
+            }
+            for index, ((action_type, ports, destination_kind), destinations) in enumerate(
+                sorted(buckets.items()), start=1
+            )
+        ]
+
 
 class ConfigVersion(models.Model):
     """Singleton tracking the current rendered Squid configuration version.
-    
+
     **Design**: This model maintains a single record (pk=1) storing:
     - The current version number (auto-incremented on each config change)
     - The rendered config string (for comparison and rollback)
     - Timestamp of last update
-    
-    **Relationship to RenderedConfigHistory**: 
+
+    **Relationship to RenderedConfigHistory**:
     - ConfigVersion represents the *current* state; RenderedConfigHistory stores *history*.
     - When ConfigVersion is incremented, a new RenderedConfigHistory entry is created.
     - This two-model design enables squid-pinned-config-version to reference historical versions.
     - Without RenderedConfigHistory, pinning would require storing all old configs in ConfigVersion.
-    
+
     See RenderedConfigHistory for the historical record and pinning mechanism.
     """
 
@@ -134,18 +183,18 @@ class ConfigVersion(models.Model):
 
 class RenderedConfigHistory(models.Model):
     """Stores the rendered Squid configuration for each version, enabling pinning.
-    
+
     **Design**: A separate history table storing immutable records of every rendered config.
-    
-    **Use case**: The squid-pinned-config-version charm config option allows operators to 
-    "freeze" at a specific version. When pinned, the watcher reads the config from this 
+
+    **Use case**: The squid-pinned-config-version charm config option allows operators to
+    "freeze" at a specific version. When pinned, the watcher reads the config from this
     table (via ConfigVersion.increment()) instead of re-rendering from the database.
-    
+
     **Relationship to ConfigVersion**:
     - ConfigVersion.increment() automatically creates a new RenderedConfigHistory entry.
     - This model stores the history; ConfigVersion stores the current pointer.
     - Never update or delete RenderedConfigHistory entries (immutable audit trail).
-    
+
     See ConfigVersion for the current state; this model for historical records.
     """
 
@@ -157,4 +206,5 @@ class RenderedConfigHistory(models.Model):
         ordering = ["-version"]
 
     def __str__(self) -> str:
+        """Return the string representation."""
         return f"v{self.version}"
