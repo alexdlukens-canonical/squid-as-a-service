@@ -538,8 +538,12 @@ class TestSquidConfigValidation(TestCase):
 
         config = render_squid_config()
 
-        assert "dstport__ab12cd34__stg-terrasquid-ps7-client-terraform port 443" in config
-        assert "dstport__terrasquid-admin-key__" not in config
+        assert "acl port__443 port 443" in config
+        assert (
+            "http_access allow src__ab12cd34__stg-terrasquid-ps7-client "
+            "rule_dst__ab12cd34__stg-terrasquid-ps7-client-terraform__1 port__443"
+        ) in config
+        assert "dstport__" not in config
 
     def test_render_expands_destination_groups_without_duplicates(self) -> None:
         """Direct and grouped references to one destination render one access rule."""
@@ -649,6 +653,116 @@ class TestSquidConfigValidation(TestCase):
         assert config.count("acl rule_dst__ab12cd34__allow-common-sites__") == 4
         assert config.count("http_access allow src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 3
         assert config.count("http_access deny src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 1
+
+    def test_render_declares_all_rule_acls_before_access_rules(self) -> None:
+        """Declare every generated rule ACL before source access statements can use it."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        for index in range(2):
+            source = SourceACL.objects.create(
+                service="test-service",
+                name=f"source-{index}",
+                key_prefix="ab12cd34",
+                cidr=[f"10.0.{index}.0/24"],
+            )
+            destination = DestinationConfig.objects.create(
+                service="test-service",
+                name=f"destination-{index}",
+                key_prefix="ab12cd34",
+                dst=f"destination-{index}.example.com",
+                type="ALLOW",
+            )
+            rule = ACLRule.objects.create(
+                service="test-service",
+                name=f"rule-{index}",
+                key_prefix="ab12cd34",
+                priority=index,
+            )
+            rule.sources.add(source)
+            rule.destinations.add(destination)
+
+        config = render_squid_config()
+        rule_acl_positions = [config.index(f"acl rule_dst__ab12cd34__rule-{index}__1") for index in range(2)]
+
+        assert max(rule_acl_positions) < config.index("http_access allow src__ab12cd34__source-")
+
+    def test_render_orders_sources_stably_within_rule(self) -> None:
+        """Render a rule's source access statements in stable name order."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        sources = [
+            SourceACL.objects.create(
+                service="test-service",
+                name=name,
+                key_prefix="ab12cd34",
+                cidr=[cidr],
+            )
+            for name, cidr in (("z-source", "10.0.0.0/24"), ("a-source", "10.0.1.0/24"))
+        ]
+        destination = DestinationConfig.objects.create(
+            service="test-service",
+            name="destination",
+            key_prefix="ab12cd34",
+            dst="destination.example.com",
+            type="ALLOW",
+        )
+        rule = ACLRule.objects.create(service="test-service", name="rule", key_prefix="ab12cd34")
+        rule.sources.add(*sources)
+        rule.destinations.add(destination)
+
+        config = render_squid_config()
+
+        assert config.index("http_access allow src__ab12cd34__a-source") < config.index(
+            "http_access allow src__ab12cd34__z-source"
+        )
+
+    def test_render_orders_rules_by_priority_type_then_creation_time(self) -> None:
+        """Order access rules by ascending priority, action type, then creation time."""
+        from terrasquid.api.models import ACLRule, DestinationConfig, SourceACL
+        from terrasquid.api.squid_render import render_squid_config
+
+        source = SourceACL.objects.create(
+            service="test-service",
+            name="source",
+            key_prefix="ab12cd34",
+            cidr=["10.0.0.0/24"],
+        )
+        cases = (
+            ("created-first-allow", 100, "ALLOW"),
+            ("priority-99-allow", 99, "ALLOW"),
+            ("created-second-allow", 100, "ALLOW"),
+            ("priority-100-connect", 100, "CONNECT"),
+            ("priority-100-deny", 100, "DENY"),
+        )
+        for name, priority, action_type in cases:
+            destination = DestinationConfig.objects.create(
+                service="test-service",
+                name=name,
+                key_prefix="ab12cd34",
+                dst=f"{name}.example.com",
+                type=action_type,
+            )
+            rule = ACLRule.objects.create(
+                service="test-service",
+                name=name,
+                key_prefix="ab12cd34",
+                priority=priority,
+            )
+            rule.sources.add(source)
+            rule.destinations.add(destination)
+
+        config = render_squid_config()
+        access_lines = [line for line in config.splitlines() if line.startswith("http_access ") and "src__" in line]
+
+        assert [line.split("rule_dst__ab12cd34__", 1)[1].split("__1", 1)[0] for line in access_lines] == [
+            "priority-99-allow",
+            "priority-100-deny",
+            "priority-100-connect",
+            "created-first-allow",
+            "created-second-allow",
+        ]
 
     def test_render_places_comments_before_their_acl_blocks(self) -> None:
         """Configured comments label their source, destination, and logical rule exactly once."""

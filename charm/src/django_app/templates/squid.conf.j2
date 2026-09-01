@@ -32,21 +32,32 @@ acl dst__{{ dst.key_prefix }}__{{ dst.name }} dst {{ dst.dst }}
 {% else %}
 acl dst__{{ dst.key_prefix }}__{{ dst.name }} dstdomain {{ dst.dst }}
 {% endif %}
-acl dstport__{{ dst.key_prefix }}__{{ dst.name }} port {{ dst.effective_ports() | join(' ') }}
+
+{% endfor %}
+
+# ======= Port ACLs =======
+{% for ports in port_sets %}
+acl port__{{ ports | join('_') }} port {{ ports | join(' ') }}
 {% endfor %}
 
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
 {% if rule.comment %}
 # {{ rule.comment }}
+{% else %}
+# Service: {{ rule.service }}; rule: {{ rule.name }}
 {% endif %}
 {% for bucket in rule.effective_destination_buckets %}
-{% set action = 'allow' if bucket.type in ('ALLOW', 'CONNECT') else 'deny' %}
 acl rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} {{ bucket.destination_kind }} {% for dst in bucket.destinations %}{{ dst.dst }}{% if not loop.last %} {% endif %}{% endfor %}{{ '\n' }}
-acl rule_dstport__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} port {{ bucket.ports | join(' ') }}
-{% for src in rule.sources.all() %}
-http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} rule_dstport__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }}
 {% endfor %}
+
+{% endfor %}
+{% for entry in acl_access_entries %}
+{% set rule = entry.rule %}
+{% set bucket = entry.bucket %}
+{% set action = 'allow' if bucket.type in ('ALLOW', 'CONNECT') else 'deny' %}
+{% for src in rule.sources.all() %}
+http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} port__{{ bucket.ports | join('_') }}
 {% endfor %}
 {% endfor %}
 

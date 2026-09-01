@@ -32,7 +32,7 @@ _UNIT_ENV_FILE = "/etc/terrasquid/terrasquid.env"
 _SQUID_CONF = "/etc/squid/squid.conf"
 
 SOURCE_COUNT = 1000
-_ACL_KEY_PREFIX = re.compile(r"\b(?P<kind>src|dst|dstport|rule_dst|rule_dstport)__[A-Za-z0-9]+__")
+_ACL_KEY_PREFIX = re.compile(r"\b(?P<kind>src|dst|rule_dst)__[A-Za-z0-9]+__")
 
 # Local snapshot file — persists across runs so the config can be diffed.
 _SNAPSHOT_PATH = CHARM_DIR / "tests" / "integration" / "squid_scale_snapshot.conf"
@@ -120,14 +120,10 @@ def _read_unit_squid_conf(model: str) -> str:
 
 
 def _canonical_squid_conf(config: str) -> str:
-    """Remove deployment-specific ACL prefixes and stabilize generated allow rules."""
-    lines = [
+    """Remove deployment-specific ACL prefixes without changing rendered rule order."""
+    return "".join(
         _ACL_KEY_PREFIX.sub(lambda match: f"{match['kind']}__KEY_PREFIX__", line)
         for line in config.splitlines(keepends=True)
-    ]
-    generated_allow_rules = iter(sorted(line for line in lines if line.startswith("http_access allow src__")))
-    return "".join(
-        next(generated_allow_rules) if line.startswith("http_access allow src__") else line for line in lines
     )
 
 
@@ -146,6 +142,21 @@ def _assert_squid_conf_matches_snapshot(config: str, snapshot_path: Path) -> Non
 
 
 # ── Test ──────────────────────────────────────────────────────────────────────
+
+
+def test_canonical_squid_conf_preserves_rule_order() -> None:
+    """Canonicalization replaces key prefixes without reordering access rules."""
+    config = """\
+http_access allow src__prefix__a-source rule_dst__prefix__priority-99__1 port__80
+http_access allow src__prefix__z-source rule_dst__prefix__priority-100__1 port__80
+"""
+
+    access_lines = [line for line in _canonical_squid_conf(config).splitlines() if line.startswith("http_access")]
+
+    assert access_lines == [
+        "http_access allow src__KEY_PREFIX__a-source rule_dst__KEY_PREFIX__priority-99__1 port__80",
+        "http_access allow src__KEY_PREFIX__z-source rule_dst__KEY_PREFIX__priority-100__1 port__80",
+    ]
 
 
 def test_1000_source_rules_squid_config_matches(juju_model_deployed, deploy_charms):
