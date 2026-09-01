@@ -92,7 +92,7 @@ without a name returns only groups owned by the authenticated service.
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `name` | string | yes | |
-| `priority` | int | no | default 100, higher values evaluated first |
+| `priority` | int | no | default 100, lower values evaluated first |
 | `sources` | list[string] | yes | `source_acl` IDs, at least one |
 | `destinations` | list[string] | no | Direct `destination_config` IDs |
 | `destination_groups` | list[string] | no | Shared `destination_group` IDs |
