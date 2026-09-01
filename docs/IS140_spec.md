@@ -224,7 +224,7 @@ http_access deny all
 
 **ACL name namespacing**: Squid requires ACL names to be globally unique within a config file, but resources from different services may share the same user-supplied `name`. The Jinja2 template therefore renders all ACL names as `<service>__<user-name>` (double-underscore separator; `service` is the sanitised provider `service` attribute with non-alphanumeric characters replaced by `_`). The `name` pattern `[a-zA-Z0-9_-]+` and max 63 characters applies to the user-supplied portion only; the combined name stays within Squid's 200-character ACL name limit.
 
-Rules are sorted at render time by `(priority ASC, type_order ASC, created_at ASC)` where `type_order` maps DENY → 0, CONNECT → 1, ALLOW → 2\. The default priority of `100` leaves room for operators to insert high-priority rules (lower numbers) or low-priority catch-all rules (higher numbers) without renumbering.
+Access entries are sorted at render time by priority ascending, then `DENY` before `CONNECT` before `ALLOW`, then rule creation time. Service, rule name, and destination bucket index provide deterministic ordering for otherwise equal entries. The default priority of `100` leaves room for operators to insert higher-priority rules with smaller numbers without renumbering.
 
 **CONNECT rule generation detail**: When any `CONNECT`\-type destination exists, the template emits a single `acl terrasquid_connect_method method CONNECT` near the top of the file (idempotent — only once regardless of rule count). Each CONNECT rule is then rendered as:
 
@@ -434,7 +434,7 @@ resource "terrasquid_acl_rule" "block_malware_sites" {
 * `src_group` (optional, string): ID of a `terrasquid_source_group` resource. Exactly one of `src` or `src_group` must be set.  
 * `dst` (optional, string): ID of a `terrasquid_destination_configuration`. Exactly one of `dst` or `dst_group` must be set.  
 * `dst_group` (optional, string): ID of a `terrasquid_destination_group`. Exactly one of `dst` or `dst_group` must be set.  
-* `priority` (optional, int): Determines the position of this rule in the rendered Squid config. Lower values are written first (evaluated first by Squid). Defaults to `100`. At equal priority, DENY rules precede ALLOW/CONNECT rules; ties within the same type are broken by creation time.
+* `priority` (optional, int): Determines the position of this rule in the rendered Squid config. Lower values are written first and evaluated first by Squid. Defaults to `100`. Rules at equal priority are ordered by destination type (`DENY`, `CONNECT`, `ALLOW`), then creation time. Service and name provide deterministic ordering for otherwise equal rules.
 
 #### terrasquid\_port\_group
 

@@ -117,6 +117,9 @@ class SquidAsAServiceCharm(ops.CharmBase):
             return
         self._request_certificate()
         self._write_gunicorn_config()
+        self._write_watcher_timer()
+        subprocess.run(["systemctl", "daemon-reload"], check=True)
+        subprocess.run(["systemctl", "reload-or-restart", SQUID_WATCHER_TIMER], capture_output=True)
         self._write_env_file()
         self._reload_gunicorn()
         self._reload_squid_exporter()
@@ -507,20 +510,7 @@ class SquidAsAServiceCharm(ops.CharmBase):
         """)
         Path(f"/etc/systemd/system/{SQUID_WATCHER_SERVICE}.service").write_text(watcher_unit)
 
-        watcher_timer = textwrap.dedent(f"""\
-            [Unit]
-            Description=Terrasquid Squid config watcher timer
-            After={GUNICORN_SERVICE}.service
-
-            [Timer]
-            OnBootSec=10s
-            OnUnitActiveSec=30s
-            Unit={SQUID_WATCHER_SERVICE}.service
-
-            [Install]
-            WantedBy=timers.target
-        """)
-        Path(f"/etc/systemd/system/{SQUID_WATCHER_TIMER}").write_text(watcher_timer)
+        self._write_watcher_timer()
 
         exporter_unit = textwrap.dedent(f"""\
             [Unit]
@@ -543,6 +533,24 @@ class SquidAsAServiceCharm(ops.CharmBase):
             WantedBy=multi-user.target
         """)
         Path(f"/etc/systemd/system/{squid.SQUID_EXPORTER_SERVICE}.service").write_text(exporter_unit)
+
+    def _write_watcher_timer(self) -> None:
+        """Write the systemd timer for periodic Squid configuration checks."""
+        watcher_interval = int(self.config.get("squid-watcher-interval", 30))
+        watcher_timer = textwrap.dedent(f"""\
+            [Unit]
+            Description=Terrasquid Squid config watcher timer
+            After={GUNICORN_SERVICE}.service
+
+            [Timer]
+            OnBootSec=10s
+            OnUnitActiveSec={watcher_interval}s
+            Unit={SQUID_WATCHER_SERVICE}.service
+
+            [Install]
+            WantedBy=timers.target
+        """)
+        Path(f"/etc/systemd/system/{SQUID_WATCHER_TIMER}").write_text(watcher_timer)
 
     def _start_services(self) -> None:
         """Enable and start all managed systemd services."""

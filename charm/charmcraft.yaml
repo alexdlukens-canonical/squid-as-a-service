@@ -16,6 +16,10 @@ config:
       type: int
       default: 3128
       description: Port Squid listens on.
+    squid-watcher-interval:
+      type: int
+      default: 30
+      description: Interval in seconds between Squid configuration checks.
     api-port:
       type: int
       default: 8080

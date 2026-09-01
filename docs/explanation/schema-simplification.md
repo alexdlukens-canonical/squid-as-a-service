@@ -92,7 +92,7 @@ without a name returns only groups owned by the authenticated service.
 | Field | Type | Required | Notes |
 |-------|------|----------|-------|
 | `name` | string | yes | |
-| `priority` | int | no | default 100, ascending evaluation |
+| `priority` | int | no | default 100, lower values evaluated first |
 | `sources` | list[string] | yes | `source_acl` IDs, at least one |
 | `destinations` | list[string] | no | Direct `destination_config` IDs |
 | `destination_groups` | list[string] | no | Shared `destination_group` IDs |
@@ -115,7 +115,9 @@ http_access <action> src__<svc>__<src> rule_dst__<rule>__<bucket> rule_dstport__
 The action is `allow` when the destination `type` is `ALLOW` or `CONNECT`, and
 `deny` otherwise. Partitioning prevents an unconfigured site/port combination
 from being allowed. The source-group and port-group sections of the template are
-removed.
+removed. Access entries are rendered by priority ascending, then destination
+type (`DENY`, `CONNECT`, `ALLOW`), then rule creation time. Stable identifiers
+break any remaining ties so repeated renders are deterministic.
 
 ## Breaking changes
 

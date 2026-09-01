@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 from django.conf import settings
+from django.db.models import Prefetch
 from jinja2 import Environment, FileSystemLoader
 
 
@@ -31,6 +32,27 @@ def render_squid_config(version: int | None = None) -> str:
     if version is None:
         version = config_version.version + 1
 
+    acl_rules = list(
+        ACLRule.objects.prefetch_related(
+            Prefetch("sources", queryset=SourceACL.objects.order_by("service", "name")),
+            "destinations",
+            "destination_groups__destinations",
+        ).order_by("priority", "created_at", "service", "name")
+    )
+    port_sets = sorted({tuple(bucket["ports"]) for rule in acl_rules for bucket in rule.effective_destination_buckets})
+    action_order = {"DENY": 0, "CONNECT": 1, "ALLOW": 2}
+    acl_access_entries = sorted(
+        ({"rule": rule, "bucket": bucket} for rule in acl_rules for bucket in rule.effective_destination_buckets),
+        key=lambda entry: (
+            entry["rule"].priority,
+            action_order[entry["bucket"]["type"]],
+            entry["rule"].created_at,
+            entry["rule"].service,
+            entry["rule"].name,
+            entry["bucket"]["index"],
+        ),
+    )
+
     return template.render(
         squid_port=settings.SQUID_PORT,
         version=version,
@@ -39,11 +61,9 @@ def render_squid_config(version: int | None = None) -> str:
         squid_default_deny=settings.SQUID_DEFAULT_DENY,
         source_acls=list(SourceACL.objects.order_by("service", "name")),
         destination_configs=list(DestinationConfig.objects.order_by("service", "name")),
-        acl_rules=list(
-            ACLRule.objects.prefetch_related("sources", "destinations", "destination_groups__destinations").order_by(
-                "priority", "service", "name"
-            )
-        ),
+        acl_rules=acl_rules,
+        acl_access_entries=acl_access_entries,
+        port_sets=port_sets,
     )
 
 
