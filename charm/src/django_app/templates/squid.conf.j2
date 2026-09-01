@@ -40,6 +40,9 @@ acl dst__{{ dst.key_prefix }}__{{ dst.name }} dstdomain {{ dst.dst }}
 acl port__{{ ports | join('_') }} port {{ ports | join(' ') }}
 {% endfor %}
 
+# ======= Method ACLs =======
+acl CONNECT method CONNECT
+
 # ======= ACL Rules (ordered by priority) =======
 {% for rule in acl_rules %}
 {% if rule.comment %}
@@ -57,7 +60,7 @@ acl rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} {{ buck
 {% set bucket = entry.bucket %}
 {% set action = 'allow' if bucket.type in ('ALLOW', 'CONNECT') else 'deny' %}
 {% for src in rule.sources.all() %}
-http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }} rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} port__{{ bucket.ports | join('_') }}
+http_access {{ action }} src__{{ src.key_prefix }}__{{ src.name }}{% if bucket.type == 'CONNECT' %} CONNECT{% endif %} rule_dst__{{ rule.key_prefix }}__{{ rule.name }}__{{ bucket.index }} port__{{ bucket.ports | join('_') }}
 {% endfor %}
 {% endfor %}
 

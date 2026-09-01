@@ -539,9 +539,10 @@ class TestSquidConfigValidation(TestCase):
         config = render_squid_config()
 
         assert "acl port__443 port 443" in config
+        assert config.count("acl CONNECT method CONNECT") == 1
         assert (
             "http_access allow src__ab12cd34__stg-terrasquid-ps7-client "
-            "rule_dst__ab12cd34__stg-terrasquid-ps7-client-terraform__1 port__443"
+            "CONNECT rule_dst__ab12cd34__stg-terrasquid-ps7-client-terraform__1 port__443"
         ) in config
         assert "dstport__" not in config
 
@@ -581,7 +582,10 @@ class TestSquidConfigValidation(TestCase):
 
         config = render_squid_config()
 
-        assert config.count("http_access allow src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 1
+        assert (
+            config.count("http_access allow src__ab12cd34__local-source CONNECT rule_dst__ab12cd34__allow-common-sites")
+            == 1
+        )
 
     def test_render_partitions_destination_groups_by_access_policy(self) -> None:
         """Only compatible destinations share a Squid ACL and access rule."""
@@ -651,7 +655,10 @@ class TestSquidConfigValidation(TestCase):
         assert "dstdomain blocked.example.com" in config
         assert "dst 192.0.2.0/24" in config
         assert config.count("acl rule_dst__ab12cd34__allow-common-sites__") == 4
-        assert config.count("http_access allow src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 3
+        assert (
+            config.count("http_access allow src__ab12cd34__local-source CONNECT rule_dst__ab12cd34__allow-common-sites")
+            == 3
+        )
         assert config.count("http_access deny src__ab12cd34__local-source rule_dst__ab12cd34__allow-common-sites") == 1
 
     def test_render_declares_all_rule_acls_before_access_rules(self) -> None:
@@ -763,6 +770,9 @@ class TestSquidConfigValidation(TestCase):
             "created-first-allow",
             "created-second-allow",
         ]
+        connect_lines = [line for line in access_lines if " CONNECT " in line]
+        assert len(connect_lines) == 1
+        assert "rule_dst__ab12cd34__priority-100-connect__1" in connect_lines[0]
 
     def test_render_places_comments_before_their_acl_blocks(self) -> None:
         """Configured comments label their source, destination, and logical rule exactly once."""
