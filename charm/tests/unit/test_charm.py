@@ -35,6 +35,7 @@ def base_state():
     return ops.testing.State(
         config={
             "squid-port": 3128,
+            "squid-watcher-interval": 30,
             "api-port": 8080,
             "gunicorn-workers": 4,
             "squid-extra-config": "",
@@ -84,6 +85,24 @@ class TestStart:
         started = [str(c) for c in no_subprocess.call_args_list]
         assert any("enable" in s for s in started)
         assert any("terrasquid-squid-exporter" in s for s in started)
+
+
+class TestWatcherTimer:
+    """Tests for the Squid configuration watcher timer."""
+
+    @pytest.mark.parametrize(("config", "expected"), [({}, "30s"), ({"squid-watcher-interval": 45}, "45s")])
+    def test_watcher_timer_uses_configured_interval(self, config, expected, ctx, monkeypatch):
+        """The watcher timer should use the configured interval with a 30-second fallback."""
+        import charm as charm_module
+
+        write_text = MagicMock()
+        monkeypatch.setattr(Path, "write_text", write_text)
+        mock_self = MagicMock()
+        mock_self.config = config
+
+        charm_module.SquidAsAServiceCharm._write_watcher_timer(mock_self)
+
+        assert f"OnUnitActiveSec={expected}" in write_text.call_args.args[0]
 
 
 class TestUpgrade:
@@ -221,9 +240,10 @@ class TestActions:
 class TestEnvFile:
     """Tests for environment file generation."""
 
+    @patch("charm.SquidAsAServiceCharm._write_watcher_timer")
     @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
     @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
-    def test_env_file_contains_database_url(self, mock_db, mock_key, ctx, base_state, tmp_path):
+    def test_env_file_contains_database_url(self, mock_db, mock_key, mock_timer, ctx, base_state, tmp_path):
         """The env file should contain DATABASE_URL."""
         import charm as charm_module
 
@@ -240,9 +260,10 @@ class TestEnvFile:
             charm_module.TERRASQUID_ENV_FILE = orig_env
             charm_module.GUNICORN_CONF_FILE = orig_gunicorn
 
+    @patch("charm.SquidAsAServiceCharm._write_watcher_timer")
     @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
     @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
-    def test_env_file_contains_pinned_config_version(self, mock_db, mock_key, ctx, tmp_path):
+    def test_env_file_contains_pinned_config_version(self, mock_db, mock_key, mock_timer, ctx, tmp_path):
         """When squid-pinned-config-version is set, it must appear in the env file."""
         import charm as charm_module
 
@@ -268,9 +289,10 @@ class TestEnvFile:
             charm_module.TERRASQUID_ENV_FILE = orig_env
             charm_module.GUNICORN_CONF_FILE = orig_gunicorn
 
+    @patch("charm.SquidAsAServiceCharm._write_watcher_timer")
     @patch("charm.SquidAsAServiceCharm._get_or_generate_secret_key", return_value="s3cr3t")
     @patch("charm.SquidAsAServiceCharm._database_url", return_value="postgresql://u:p@db/terrasquid")
-    def test_env_file_defaults_pinned_version_to_zero(self, mock_db, mock_key, ctx, base_state, tmp_path):
+    def test_env_file_defaults_pinned_version_to_zero(self, mock_db, mock_key, mock_timer, ctx, base_state, tmp_path):
         """When squid-pinned-config-version is unset, the env file must default to 0."""
         import charm as charm_module
 
